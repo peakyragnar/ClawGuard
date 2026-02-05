@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["api_version", "action", "reasons"],
+  "properties": {
+    "api_version": { "type": "number", "enum": [1] },
+    "action": { "type": "string" },
+    "reasons": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["reason_code"],
+        "properties": {
+          "reason_code": { "type": "string" },
+          "detail": { "type": "string" },
+          "evidence": { "type": "string" }
+        }
+      }
+    },
+    "suggested_mitigations": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

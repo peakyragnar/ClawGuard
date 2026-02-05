@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["tool_name", "args"],
+  "properties": {
+    "tool_name": { "type": "string" },
+    "args": { "type": "object" },
+    "session_id": { "type": "string" },
+    "run_id": { "type": "string" },
+    "source": { "type": "string" },
+    "timestamp": { "type": "string" }
+  }
+}

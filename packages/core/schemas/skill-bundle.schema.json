@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["id", "entrypoint", "files"],
+  "properties": {
+    "id": { "type": "string" },
+    "source": { "type": "string" },
+    "version": { "type": "string" },
+    "entrypoint": { "type": "string" },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path"],
+        "properties": {
+          "path": { "type": "string" },
+          "content_text": { "type": "string" },
+          "content_bytes_b64": { "type": "string" },
+          "sha256": { "type": "string" }
+        }
+      }
+    }
+  }
+}

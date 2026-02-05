@@ -1,0 +1,16 @@
+{
+  "name": "@clawguard/cli",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "clawguard": "./dist/cli.js"
+  },
+  "dependencies": {
+    "@clawguard/core": "workspace:*"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "node --test dist/test",
+    "lint": "echo \"lint: skip\""
+  }
+}

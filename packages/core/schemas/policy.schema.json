@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["api_version"],
+  "properties": {
+    "api_version": { "type": "number", "enum": [1] },
+    "tool": { "type": "object" },
+    "exec": { "type": "object" },
+    "paths": { "type": "object" },
+    "urls": { "type": "object" },
+    "thresholds": { "type": "object" }
+  }
+}

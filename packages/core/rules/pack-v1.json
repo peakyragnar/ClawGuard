@@ -1,0 +1,76 @@
+{
+  "pack_id": "clawguard.v1",
+  "pack_version": "1.0.0",
+  "rules": [
+    {
+      "id": "R001",
+      "title": "curl piped to shell",
+      "severity": "critical",
+      "reason_code": "download_exec",
+      "selectors": ["codeblock", "file", "markdown"],
+      "match": "\\bcurl\\b[^\\n|]*\\|\\s*(?:bash|sh|zsh)",
+      "flags": "gi",
+      "score": 90
+    },
+    {
+      "id": "R002",
+      "title": "wget piped to shell",
+      "severity": "critical",
+      "reason_code": "download_exec",
+      "selectors": ["codeblock", "file", "markdown"],
+      "match": "\\bwget\\b[^\\n|]*\\|\\s*(?:bash|sh|zsh)",
+      "flags": "gi",
+      "score": 90
+    },
+    {
+      "id": "R003",
+      "title": "PowerShell download + exec",
+      "severity": "critical",
+      "reason_code": "download_exec",
+      "selectors": ["codeblock", "file", "markdown"],
+      "match": "\\b(iwr|irm)\\b[^\\n]*\\|\\s*iex",
+      "flags": "gi",
+      "score": 90
+    },
+    {
+      "id": "R004",
+      "title": "base64 decode piped to shell",
+      "severity": "high",
+      "reason_code": "obfuscation",
+      "selectors": ["codeblock", "file", "markdown"],
+      "match": "base64[^\\n|]*\\|\\s*(?:bash|sh|zsh)",
+      "flags": "gi",
+      "score": 70
+    },
+    {
+      "id": "R005",
+      "title": "credential hunting paths",
+      "severity": "high",
+      "reason_code": "credential_access",
+      "selectors": ["codeblock", "file", "markdown"],
+      "match": "\\b(\\.ssh|id_rsa|keychain|Keychains|Cookies|\\.env|AWS_SECRET_ACCESS_KEY|GITHUB_TOKEN)\\b",
+      "flags": "gi",
+      "score": 70
+    },
+    {
+      "id": "R006",
+      "title": "persistence mechanisms",
+      "severity": "high",
+      "reason_code": "persistence",
+      "selectors": ["codeblock", "file", "markdown"],
+      "match": "\\b(launchctl|LaunchAgents|crontab|systemctl)\\b",
+      "flags": "gi",
+      "score": 60
+    },
+    {
+      "id": "R007",
+      "title": "Gatekeeper/quarantine bypass",
+      "severity": "high",
+      "reason_code": "gatekeeper_bypass",
+      "selectors": ["codeblock", "file", "markdown"],
+      "match": "xattr\\s+-dr?\\s+com\\.apple\\.quarantine|spctl\\s+--master-disable",
+      "flags": "gi",
+      "score": 60
+    }
+  ]
+}
