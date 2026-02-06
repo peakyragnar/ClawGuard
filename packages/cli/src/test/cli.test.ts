@@ -25,3 +25,12 @@ test('cli eval-tool-call reads stdin', async () => {
   });
   assert.equal(result.code, 3);
 });
+
+test('cli scan-dir returns deny when any skill is denied', async () => {
+  const fixturesRoot = join(here, '..', '..', '..', '..', 'fixtures', 'skills', 'bad');
+  const result = await new Promise<{ code: number | null }>((resolve) => {
+    const child = spawn(process.execPath, [cliPath, 'scan-dir', fixturesRoot], { stdio: 'ignore' });
+    child.on('close', (code) => resolve({ code }));
+  });
+  assert.equal(result.code, 2);
+});

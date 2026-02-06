@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readFile, readdir } from 'node:fs/promises';
+import { readFile, readdir, stat, lstat, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import process from 'node:process';
@@ -20,6 +20,7 @@ function usage(): void {
 
 Commands:
   scan-skill <path> [--policy <path>]
+  scan-dir <skills-root> [--policy <path>] [--out <path>]
   eval-tool-call --stdin [--policy <path>]
   rules list
   rules explain <id>
@@ -32,10 +33,16 @@ async function readJsonFile(path: string): Promise<Record<string, unknown>> {
   return JSON.parse(raw) as Record<string, unknown>;
 }
 
+function readArgValue(args: string[], key: string): string | null {
+  const idx = args.indexOf(key);
+  if (idx < 0) return null;
+  const value = args[idx + 1];
+  return value ? value : null;
+}
+
 async function loadPolicyFromArgs(args: string[]): Promise<Policy> {
-  const idx = args.indexOf('--policy');
-  if (idx >= 0 && args[idx + 1]) {
-    const path = args[idx + 1];
+  const path = readArgValue(args, '--policy');
+  if (path) {
     const data = await readJsonFile(path);
     return data as Policy;
   }
@@ -50,26 +57,87 @@ async function readTextFile(path: string): Promise<string | null> {
   }
 }
 
-async function readDirRecursive(root: string): Promise<string[]> {
+function isLikelyTextFile(path: string): boolean {
+  const lower = path.toLowerCase();
+  return (
+    lower.endsWith('.md') ||
+    lower.endsWith('.markdown') ||
+    lower.endsWith('.txt') ||
+    lower.endsWith('.sh') ||
+    lower.endsWith('.bash') ||
+    lower.endsWith('.zsh') ||
+    lower.endsWith('.ps1') ||
+    lower.endsWith('.py') ||
+    lower.endsWith('.js') ||
+    lower.endsWith('.mjs') ||
+    lower.endsWith('.ts')
+  );
+}
+
+function shouldSkipDir(name: string): boolean {
+  return name === '.git' || name === 'node_modules' || name === 'dist' || name === 'build' || name === '.pnpm';
+}
+
+type WalkLimits = {
+  maxFiles: number;
+  maxTotalBytes: number;
+  maxFileBytes: number;
+  maxDepth: number;
+};
+
+const DEFAULT_LIMITS: WalkLimits = {
+  maxFiles: 200,
+  maxTotalBytes: 5_000_000,
+  maxFileBytes: 1_000_000,
+  maxDepth: 8,
+};
+
+async function readDirRecursive(root: string, limits: WalkLimits): Promise<string[]> {
   const out: string[] = [];
-  const entries = await readdir(root, { withFileTypes: true });
-  for (const entry of entries) {
-    const full = join(root, entry.name);
-    if (entry.isDirectory()) {
-      out.push(...(await readDirRecursive(full)));
-    } else if (entry.isFile()) {
-      out.push(full);
+  const stack: Array<{ dir: string; depth: number }> = [{ dir: root, depth: 0 }];
+  while (stack.length > 0) {
+    const item = stack.pop();
+    if (!item) break;
+    const { dir, depth } = item;
+    if (depth > limits.maxDepth) continue;
+    const entries = await readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (out.length >= limits.maxFiles) return out;
+      const full = join(dir, entry.name);
+      let st: { isSymbolicLink: () => boolean } | null = null;
+      try {
+        st = await lstat(full);
+      } catch {
+        st = null;
+      }
+      if (st && st.isSymbolicLink()) {
+        continue;
+      }
+      if (entry.isDirectory()) {
+        if (shouldSkipDir(entry.name)) continue;
+        stack.push({ dir: full, depth: depth + 1 });
+      } else if (entry.isFile()) {
+        out.push(full);
+      }
     }
   }
   return out;
 }
 
 async function buildSkillBundle(path: string): Promise<SkillBundle> {
+  const limits = DEFAULT_LIMITS;
   const files: SkillBundle['files'] = [];
-  const rootFiles = await readDirRecursive(path);
+  let totalBytes = 0;
+  const rootFiles = await readDirRecursive(path, limits);
   for (const filePath of rootFiles) {
+    if (!isLikelyTextFile(filePath)) continue;
+    const size = await stat(filePath).then((s) => s.size).catch(() => 0);
+    if (size <= 0) continue;
+    if (size > limits.maxFileBytes) continue;
+    if (totalBytes + size > limits.maxTotalBytes) break;
     const content = await readTextFile(filePath);
     if (content === null) continue;
+    totalBytes += size;
     files.push({
       path: filePath.replace(`${path}/`, ''),
       content_text: content,
@@ -84,6 +152,14 @@ async function buildSkillBundle(path: string): Promise<SkillBundle> {
   };
 }
 
+function actionForScore(report: { risk_score: number }, policy: Policy): 'deny' | 'needs_approval' | 'allow' {
+  const denyAt = policy.thresholds?.scan_deny_at ?? 80;
+  const approveAt = policy.thresholds?.scan_approve_at ?? 40;
+  if (report.risk_score >= denyAt) return 'deny';
+  if (report.risk_score >= approveAt) return 'needs_approval';
+  return 'allow';
+}
+
 const commands: Record<string, CommandHandler> = {
   async 'scan-skill'(args) {
     const target = args.find((arg) => !arg.startsWith('--'));
@@ -95,11 +171,53 @@ const commands: Record<string, CommandHandler> = {
     const bundle = await buildSkillBundle(target);
     const report = scanSkillBundle(bundle);
     console.log(JSON.stringify(report, null, 2));
-    const denyAt = policy.thresholds?.scan_deny_at ?? 80;
-    const approveAt = policy.thresholds?.scan_approve_at ?? 40;
-    if (report.risk_score >= denyAt) return 2;
-    if (report.risk_score >= approveAt) return 3;
-    return 0;
+    const action = actionForScore(report, policy);
+    return action === 'deny' ? 2 : action === 'needs_approval' ? 3 : 0;
+  },
+
+  async 'scan-dir'(args) {
+    const target = args.find((arg) => !arg.startsWith('--'));
+    if (!target) {
+      console.error('scan-dir requires <skills-root>');
+      return 1;
+    }
+    const outPath = readArgValue(args, '--out');
+    const policy = await loadPolicyFromArgs(args);
+
+    const entries = await readdir(target, { withFileTypes: true });
+    const results: Array<{
+      skill: string;
+      path: string;
+      action: 'allow' | 'needs_approval' | 'deny';
+      risk_score: number;
+      findings: number;
+    }> = [];
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const skillDir = join(target, entry.name);
+      if (!existsSync(join(skillDir, 'SKILL.md'))) continue;
+      const bundle = await buildSkillBundle(skillDir);
+      const report = scanSkillBundle(bundle);
+      const action = actionForScore(report, policy);
+      results.push({
+        skill: entry.name,
+        path: skillDir,
+        action,
+        risk_score: report.risk_score,
+        findings: report.findings.length,
+      });
+    }
+
+    if (outPath) {
+      const jsonl = results.map((row) => JSON.stringify(row)).join('\n') + '\n';
+      await writeFile(outPath, jsonl, 'utf8');
+      console.log(outPath);
+    } else {
+      console.log(JSON.stringify(results, null, 2));
+    }
+
+    return results.some((row) => row.action === 'deny') ? 2 : results.some((row) => row.action === 'needs_approval') ? 3 : 0;
   },
 
   async 'eval-tool-call'(args) {
