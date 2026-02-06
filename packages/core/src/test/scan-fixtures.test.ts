@@ -65,6 +65,13 @@ const FIXTURES: FixtureExpectation[] = [
   { dir: 'creds', ruleId: 'R005', minScore: 60 },
   { dir: 'persistence', ruleId: 'R006', minScore: 60 },
   { dir: 'quarantine', ruleId: 'R007', minScore: 60 },
+  { dir: 'multifile-curl', ruleId: 'R001', minScore: 80 },
+  { dir: 'multifile-wget', ruleId: 'R002', minScore: 80 },
+  { dir: 'multifile-powershell', ruleId: 'R003', minScore: 80 },
+  { dir: 'multifile-base64', ruleId: 'R004', minScore: 60 },
+  { dir: 'multifile-creds', ruleId: 'R005', minScore: 60 },
+  { dir: 'multifile-persistence', ruleId: 'R006', minScore: 60 },
+  { dir: 'multifile-quarantine', ruleId: 'R007', minScore: 60 },
 ];
 
 for (const fixture of FIXTURES) {
@@ -79,6 +86,17 @@ for (const fixture of FIXTURES) {
 
 test('scan fixtures flags kitchen-sink (all rules)', async () => {
   const bundle = await buildFixtureBundle('kitchen-sink');
+  const report = scanSkillBundle(bundle);
+  assert.equal(report.api_version, 1);
+  const ids = new Set(report.findings.map((finding) => finding.rule_id));
+  for (const id of ['R001', 'R002', 'R003', 'R004', 'R005', 'R006', 'R007']) {
+    assert.ok(ids.has(id), `missing finding for ${id}`);
+  }
+  assert.ok(report.risk_score >= 90);
+});
+
+test('scan fixtures flags kitchen-sink-multifile (all rules)', async () => {
+  const bundle = await buildFixtureBundle('kitchen-sink-multifile');
   const report = scanSkillBundle(bundle);
   assert.equal(report.api_version, 1);
   const ids = new Set(report.findings.map((finding) => finding.rule_id));
