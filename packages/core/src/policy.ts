@@ -59,6 +59,12 @@ function needsApproval(reason_code: string, detail?: string, evidence?: string):
   return buildDecision('needs_approval', [{ reason_code, detail, evidence }]);
 }
 
+function toolMatchesPattern(toolName: string, pattern: string): boolean {
+  if (!pattern) return false;
+  if (pattern.endsWith('*')) return toolName.startsWith(pattern.slice(0, -1));
+  return toolName === pattern;
+}
+
 export function evaluateToolCall(call: ToolCallContext, policy: Policy): Decision {
   const toolName = call.tool_name;
   const toolPolicy = policy.tool ?? {};
@@ -84,6 +90,16 @@ export function evaluateToolCall(call: ToolCallContext, policy: Policy): Decisio
       return deny('exec_cmd_not_allowlisted', cmdName);
     }
     const allArgs = [cmd, ...(Array.isArray(call.args.args) ? call.args.args.map(String) : [])].join(' ');
+    const denyPatterns = toArray(policy.exec?.deny_patterns);
+    for (const raw of denyPatterns) {
+      if (!raw) continue;
+      try {
+        const re = new RegExp(String(raw), 'i');
+        if (re.test(allArgs)) return deny('exec_pattern_denied', String(raw), allArgs.slice(0, 180));
+      } catch {
+        // ignore invalid patterns
+      }
+    }
     if (detectShellOperators(allArgs)) {
       return deny('exec_shell_operators', allArgs.slice(0, 180));
     }
@@ -124,6 +140,15 @@ export function evaluateToolCall(call: ToolCallContext, policy: Policy): Decisio
         return deny('url_invalid', '', url);
       }
     }
+  }
+
+  const sandboxOnly = toArray(toolPolicy.sandbox_only);
+  if (sandboxOnly.some((entry) => toolMatchesPattern(toolName, String(entry)))) {
+    return buildDecision(
+      'sandbox_only',
+      [{ reason_code: 'sandbox_only', detail: toolName }],
+      ['Run in an isolated sandbox', 'Disable network egress by default', 'Mount workspace read-only', 'Keep approvals enabled for elevated tools'],
+    );
   }
 
   const isElevated =

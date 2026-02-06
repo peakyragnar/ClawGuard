@@ -34,3 +34,12 @@ test('cli scan-dir returns deny when any skill is denied', async () => {
   });
   assert.equal(result.code, 2);
 });
+
+test('cli scan-tree finds nested skills and returns deny when any skill is denied', async () => {
+  const fixturesRoot = join(here, '..', '..', '..', '..', 'fixtures', 'skills');
+  const result = await new Promise<{ code: number | null }>((resolve) => {
+    const child = spawn(process.execPath, [cliPath, 'scan-tree', fixturesRoot, '--max-skills', '50'], { stdio: 'ignore' });
+    child.on('close', (code) => resolve({ code }));
+  });
+  assert.equal(result.code, 2);
+});

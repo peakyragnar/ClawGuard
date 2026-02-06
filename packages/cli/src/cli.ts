@@ -24,11 +24,12 @@ function usage(): void {
 Commands:
   scan-source <path|url|zip> [--policy <path>]
   scan-dir <skills-root> [--policy <path>] [--out <path>]
+  scan-tree <root> [--policy <path>] [--out <path>] [--max-skills <n>]
   ingest <path|url|zip> [--receipt-dir <path>] [--policy <path>]
   eval-tool-call --stdin [--policy <path>]
   rules list
   rules explain <id>
-  policy init [--path <path>]
+  policy init [--path <path>] [--mode <default|untrusted>]
 `);
 }
 
@@ -61,6 +62,38 @@ function actionForScore(report: { risk_score: number }, policy: Policy): 'deny' 
   return 'allow';
 }
 
+async function findSkillDirs(root: string, maxSkills: number): Promise<string[]> {
+  const found: string[] = [];
+  const queue: string[] = [root];
+  const seen = new Set<string>();
+
+  while (queue.length > 0 && found.length < maxSkills) {
+    const dir = queue.shift() as string;
+    if (seen.has(dir)) continue;
+    seen.add(dir);
+
+    let entries: import('node:fs').Dirent[];
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    if (entries.some((e) => e.isFile() && e.name === 'SKILL.md')) {
+      found.push(dir);
+      continue;
+    }
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      if (entry.isSymbolicLink()) continue;
+      queue.push(join(dir, entry.name));
+    }
+  }
+
+  return found;
+}
+
 async function mapPool<T, R>(items: T[], concurrency: number, fn: (item: T, idx: number) => Promise<R>): Promise<R[]> {
   const out = new Array<R>(items.length);
   let idx = 0;
@@ -86,8 +119,21 @@ const commands: Record<string, CommandHandler> = {
     const policy = await loadPolicyFromArgs(args);
     const bundle = await buildSkillBundleFromSource(target);
     const report = scanSkillBundle(bundle);
-    console.log(JSON.stringify(report, null, 2));
     const action = actionForScore(report, policy);
+    console.log(
+      JSON.stringify(
+        {
+          action,
+          policy_thresholds: {
+            scan_approve_at: policy.thresholds?.scan_approve_at ?? 40,
+            scan_deny_at: policy.thresholds?.scan_deny_at ?? 80,
+          },
+          report,
+        },
+        null,
+        2,
+      ),
+    );
     return action === 'deny' ? 2 : action === 'needs_approval' ? 3 : 0;
   },
 
@@ -111,6 +157,7 @@ const commands: Record<string, CommandHandler> = {
 
     const bundle = await buildSkillBundleFromSource(target, limits);
     const report = scanSkillBundle(bundle);
+    const action = actionForScore(report, policy);
     console.log(
       JSON.stringify(
         {
@@ -122,13 +169,17 @@ const commands: Record<string, CommandHandler> = {
             ingest_warnings: bundle.ingest_warnings ?? [],
             source: bundle.source,
           },
+          action,
+          policy_thresholds: {
+            scan_approve_at: policy.thresholds?.scan_approve_at ?? 40,
+            scan_deny_at: policy.thresholds?.scan_deny_at ?? 80,
+          },
           report,
         },
         null,
         2,
       ),
     );
-    const action = actionForScore(report, policy);
     return action === 'deny' ? 2 : action === 'needs_approval' ? 3 : 0;
   },
 
@@ -165,6 +216,42 @@ const commands: Record<string, CommandHandler> = {
         findings: report.findings.length,
       });
     }
+
+    if (outPath) {
+      const jsonl = results.map((row) => JSON.stringify(row)).join('\n') + '\n';
+      await writeFile(outPath, jsonl, 'utf8');
+      console.log(outPath);
+    } else {
+      console.log(JSON.stringify(results, null, 2));
+    }
+
+    return results.some((row) => row.action === 'deny') ? 2 : results.some((row) => row.action === 'needs_approval') ? 3 : 0;
+  },
+
+  async 'scan-tree'(args) {
+    const target = args.find((arg) => !arg.startsWith('--'));
+    if (!target) {
+      console.error('scan-tree requires <root>');
+      return 1;
+    }
+    const outPath = readArgValue(args, '--out');
+    const policy = await loadPolicyFromArgs(args);
+    const maxSkillsRaw = readArgValue(args, '--max-skills');
+    const maxSkills = maxSkillsRaw ? clampInt(Number.parseInt(maxSkillsRaw, 10), 1, 5000) : 500;
+
+    const skillDirs = await findSkillDirs(target, maxSkills);
+    const results = await mapPool(skillDirs, 6, async (skillDir) => {
+      const bundle = await buildSkillBundleFromSource(skillDir);
+      const report = scanSkillBundle(bundle);
+      const action = actionForScore(report, policy);
+      return {
+        skill: skillDir.split('/').pop() ?? skillDir,
+        path: skillDir,
+        action,
+        risk_score: report.risk_score,
+        findings: report.findings.length,
+      };
+    });
 
     if (outPath) {
       const jsonl = results.map((row) => JSON.stringify(row)).join('\n') + '\n';
@@ -234,7 +321,7 @@ const commands: Record<string, CommandHandler> = {
     const payload = JSON.parse(stdin) as ToolCallContext;
     const decision = evaluateToolCall(payload, policy);
     console.log(JSON.stringify(decision, null, 2));
-    return decision.action === 'deny' ? 2 : decision.action === 'needs_approval' ? 3 : 0;
+    return decision.action === 'deny' ? 2 : decision.action === 'allow' ? 0 : 3;
   },
 
   async rules(args) {
@@ -266,7 +353,19 @@ const commands: Record<string, CommandHandler> = {
     }
     const idx = args.indexOf('--path');
     const path = idx >= 0 && args[idx + 1] ? args[idx + 1] : 'clawguard.policy.json';
+    const mode = readArgValue(args, '--mode') ?? 'untrusted';
     const policy = defaultPolicy();
+    if (mode === 'untrusted') {
+      policy.tool = policy.tool ?? {};
+      policy.tool.sandbox_only = ['system_*', 'browser_*', 'workflow_tool'];
+      policy.tool.denylist = Array.from(new Set([...(policy.tool.denylist ?? []), 'system_exec']));
+      policy.tool.elevated_requires_approval = true;
+    } else if (mode === 'default') {
+      // defaultPolicy() as-is
+    } else {
+      console.error('policy init --mode must be default|untrusted');
+      return 1;
+    }
     await import('node:fs/promises').then(({ writeFile }) => writeFile(path, `${JSON.stringify(policy, null, 2)}\n`, 'utf8'));
     console.log(path);
     return 0;
