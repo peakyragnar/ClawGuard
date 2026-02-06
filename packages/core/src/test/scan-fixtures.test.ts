@@ -65,6 +65,7 @@ const FIXTURES: FixtureExpectation[] = [
   { dir: 'creds', ruleId: 'R014', minScore: 80 },
   { dir: 'curl-arg-passthrough', ruleId: 'R015', minScore: 60 },
   { dir: 'hardcoded-secret', ruleId: 'R016', minScore: 10 },
+  { dir: 'autonomy-no-confirm', ruleId: 'R017', minScore: 30 },
   { dir: 'persistence', ruleId: 'R006', minScore: 60 },
   { dir: 'quarantine', ruleId: 'R007', minScore: 60 },
   { dir: 'multifile-curl', ruleId: 'R001', minScore: 80 },

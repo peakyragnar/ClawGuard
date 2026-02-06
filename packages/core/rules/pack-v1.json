@@ -1,6 +1,6 @@
 {
   "pack_id": "clawguard.v1",
-  "pack_version": "1.1.2",
+  "pack_version": "1.1.3",
   "rules": [
     {
       "id": "R001",
@@ -81,6 +81,16 @@
       "match": "\\b[\\w-]*(?:token|api[_-]?key|secret)[\\w-]*\\b[^\\n]{0,120}(?::|=)[^\\n]{0,160}\\b[a-f0-9]{32,}\\b",
       "flags": "gi",
       "score": 0
+    },
+    {
+      "id": "R017",
+      "title": "autonomy without confirmation",
+      "severity": "medium",
+      "reason_code": "autonomy_directive",
+      "selectors": ["codeblock", "file", "markdown"],
+      "match": "(?:execute[^\\n]{0,120}without\\s+confirmation)|(?:no\\s+unnecessary\\s+confirmations)|(?:universal\\s+tool\\s+access)|(?:always\\s+active\\s+when\\s+loaded)|(?:autopilot\\s*\\(default\\))",
+      "flags": "gi",
+      "score": 30
     },
     {
       "id": "R006",
