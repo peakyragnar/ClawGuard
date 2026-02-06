@@ -27,6 +27,18 @@ function severityFloor(severity: Severity): number {
   }
 }
 
+function dedupeFindings<T extends { rule_id: string; file?: string; line?: number; column?: number; evidence: string }>(findings: T[]): T[] {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const finding of findings) {
+    const key = `${finding.rule_id}|${finding.file ?? ''}|${finding.line ?? 0}|${finding.column ?? 0}|${finding.evidence}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(finding);
+  }
+  return out;
+}
+
 export function scanSkillBundle(bundle: SkillBundle): ScanReport {
   const rulePack = loadDefaultRulePack();
   const signals: ScanSignal[] = [];
@@ -40,7 +52,7 @@ export function scanSkillBundle(bundle: SkillBundle): ScanReport {
     signals.push({ type: 'file' as const, text: file.content_text, file: file.path, baseLine: 1 });
   }
 
-  const findings = applyRules(signals, rulePack.rules);
+  const findings = dedupeFindings(applyRules(signals, rulePack.rules));
   const scoreSum = findings.reduce((sum, finding) => {
     const score = rulePack.rules.find((rule) => rule.id === finding.rule_id)?.score ?? 0;
     return sum + score;
