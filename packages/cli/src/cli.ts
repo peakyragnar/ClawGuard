@@ -3,6 +3,7 @@ import { readFile, readdir, stat, lstat, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import process from 'node:process';
+import { mkdir } from 'node:fs/promises';
 import {
   defaultPolicy,
   evaluateToolCall,
@@ -13,6 +14,9 @@ import {
   type ToolCallContext,
 } from '@clawguard/core';
 import { createClawhubClient, fetchSkillReadme, listSkills, type ClawhubScanLimits } from './clawhub.js';
+import { buildSkillBundleFromSource } from './source.js';
+import { clampInt } from './limits.js';
+import { bundleContentHash, policyHash, type SkillReceipt } from './receipt.js';
 
 type CommandHandler = (args: string[]) => Promise<number>;
 
@@ -21,8 +25,10 @@ function usage(): void {
 
 Commands:
   scan-skill <path> [--policy <path>]
+  scan-source <path|url|zip> [--policy <path>]
   scan-dir <skills-root> [--policy <path>] [--out <path>]
   scan-clawhub [--limit <n>] [--convex-url <url>] [--out <path>] [--policy <path>]
+  ingest <path|url|zip> [--receipt-dir <path>] [--policy <path>]
   eval-tool-call --stdin [--policy <path>]
   rules list
   rules explain <id>
@@ -192,6 +198,31 @@ const commands: Record<string, CommandHandler> = {
     return action === 'deny' ? 2 : action === 'needs_approval' ? 3 : 0;
   },
 
+  async 'scan-source'(args) {
+    const target = args.find((arg) => !arg.startsWith('--'));
+    if (!target) {
+      console.error('scan-source requires <path|url|zip>');
+      return 1;
+    }
+    const policy = await loadPolicyFromArgs(args);
+
+    const timeoutMsRaw = readArgValue(args, '--timeout-ms');
+    const maxFilesRaw = readArgValue(args, '--max-files');
+    const maxTotalBytesRaw = readArgValue(args, '--max-total-bytes');
+    const maxZipBytesRaw = readArgValue(args, '--max-zip-bytes');
+    const limits: Record<string, number> = {};
+    if (timeoutMsRaw) limits.timeoutMs = clampInt(Number.parseInt(timeoutMsRaw, 10), 1000, 60_000);
+    if (maxFilesRaw) limits.maxFiles = clampInt(Number.parseInt(maxFilesRaw, 10), 1, 2000);
+    if (maxTotalBytesRaw) limits.maxTotalBytes = clampInt(Number.parseInt(maxTotalBytesRaw, 10), 1_000, 200_000_000);
+    if (maxZipBytesRaw) limits.maxZipBytes = clampInt(Number.parseInt(maxZipBytesRaw, 10), 1_000, 200_000_000);
+
+    const bundle = await buildSkillBundleFromSource(target, limits);
+    const report = scanSkillBundle(bundle);
+    console.log(JSON.stringify({ bundle: { id: bundle.id, entrypoint: bundle.entrypoint, files: bundle.files.length, source: bundle.source }, report }, null, 2));
+    const action = actionForScore(report, policy);
+    return action === 'deny' ? 2 : action === 'needs_approval' ? 3 : 0;
+  },
+
   async 'scan-dir'(args) {
     const target = args.find((arg) => !arg.startsWith('--'));
     if (!target) {
@@ -235,6 +266,44 @@ const commands: Record<string, CommandHandler> = {
     }
 
     return results.some((row) => row.action === 'deny') ? 2 : results.some((row) => row.action === 'needs_approval') ? 3 : 0;
+  },
+
+  async ingest(args) {
+    const target = args.find((arg) => !arg.startsWith('--'));
+    if (!target) {
+      console.error('ingest requires <path|url|zip>');
+      return 1;
+    }
+    const policy = await loadPolicyFromArgs(args);
+    const receiptDir = readArgValue(args, '--receipt-dir') ?? join(process.cwd(), '.clawguard', 'receipts');
+
+    const bundle = await buildSkillBundleFromSource(target, {});
+    const report = scanSkillBundle(bundle);
+    const action = actionForScore(report, policy);
+
+    const { sha256, totalBytes } = bundleContentHash(bundle);
+    const receipt: SkillReceipt = {
+      receipt_version: 1,
+      created_at: new Date().toISOString(),
+      source_input: target,
+      bundle: {
+        id: bundle.id,
+        source: bundle.source,
+        entrypoint: bundle.entrypoint,
+        file_count: bundle.files.length,
+        total_bytes: totalBytes,
+        content_sha256: sha256,
+      },
+      policy_sha256: policyHash(policy),
+      scan_report: report,
+    };
+
+    await mkdir(receiptDir, { recursive: true });
+    const path = join(receiptDir, `${sha256}.json`);
+    await writeFile(path, `${JSON.stringify({ action, ...receipt }, null, 2)}\n`, 'utf8');
+    console.log(path);
+
+    return action === 'deny' ? 2 : action === 'needs_approval' ? 3 : 0;
   },
 
   async 'scan-clawhub'(args) {
