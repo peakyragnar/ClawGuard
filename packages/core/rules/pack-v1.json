@@ -1,6 +1,6 @@
 {
   "pack_id": "clawguard.v1",
-  "pack_version": "1.1.5",
+  "pack_version": "1.1.6",
   "rules": [
     {
       "id": "R001",
@@ -111,6 +111,36 @@
       "match": "(?:\\btelemetry\\b)|(?:\\bkb\\s+save\\b[^\\n]{0,160}--file\\b)|(?:\\bkb\\s+sync\\b)|(?:\\bsessions\\s+extract\\b[^\\n]{0,160}--type\\s+files\\b)",
       "flags": "gi",
       "score": 30
+    },
+    {
+      "id": "R020",
+      "title": "privileged install to system PATH",
+      "severity": "medium",
+      "reason_code": "privileged_install",
+      "selectors": ["codeblock", "file", "markdown"],
+      "match": "\\bsudo\\b[^\\n]{0,200}\\b(?:install|mv|cp|tee|dd|curl|wget)\\b[^\\n]{0,240}\\b(?:\\/usr\\/local\\/bin|\\/usr\\/bin|\\/bin|\\/opt\\/homebrew\\/bin)\\b",
+      "flags": "gi",
+      "score": 30
+    },
+    {
+      "id": "R021",
+      "title": "executes external tools (supply chain surface)",
+      "severity": "medium",
+      "reason_code": "external_exec_capability",
+      "selectors": ["codeblock", "file", "markdown"],
+      "match": "(?:\\bsubprocess\\.(?:run|Popen)\\s*\\()|(?:\\bos\\.system\\s*\\()|(?:\\bchild_process\\.(?:exec|execSync|spawn|spawnSync)\\s*\\()|(?:\\bexecSync\\s*\\()|(?:\\bspawnSync?\\s*\\()",
+      "flags": "gi",
+      "score": 30
+    },
+    {
+      "id": "R022",
+      "title": "disables agent safety controls (auto-run / safety filter off)",
+      "severity": "critical",
+      "reason_code": "safety_controls_disabled",
+      "selectors": ["codeblock", "file", "markdown"],
+      "match": "(?:\\bauto_run\\b\\s*[:=]\\s*true)|(?:\"auto_run\"\\s*:\\s*true)|(?:\\bsafety_filter\\b\\s*[:=]\\s*false)|(?:\"safety_filter\"\\s*:\\s*false)",
+      "flags": "gi",
+      "score": 90
     },
     {
       "id": "R006",
