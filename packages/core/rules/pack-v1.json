@@ -58,7 +58,7 @@
       "severity": "critical",
       "reason_code": "credential_access",
       "selectors": ["codeblock", "file", "markdown"],
-      "match": "(?:\\bsecurity\\s+find-(?:generic-password|internet-password)\\b)|(?:\\b(?:cat|cp|tar|zip|find|rg|grep|sqlite3)\\b[^\\n]{0,160}(?:~\\/?\\.ssh\\/|\\.ssh\\/id_rsa|~\\/?\\.aws\\/credentials|\\.env|Keychains?|Cookies))",
+      "match": "(?:\\bsecurity\\s+find-(?:generic-password|internet-password)\\b)|(?:\\bsqlite3\\b[^\\n]{0,160}\\bCookies\\b)|(?:\\b(?:cat|cp)\\b[^\\n]{0,160}(?:(?:~\\/?\\.ssh\\/|\\.ssh\\/)(?:id_rsa|id_ed25519|id_ecdsa|id_dsa)(?!\\.pub\\b)|~\\/?\\.aws\\/credentials|\\.env|Keychains?|Cookies))|(?:\\b(?:tar|zip)\\b[^\\n]{0,160}(?:~\\/?\\.ssh\\b|~\\/?\\.aws\\b))",
       "flags": "gi",
       "score": 90
     },
