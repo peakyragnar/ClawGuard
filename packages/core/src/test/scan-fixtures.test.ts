@@ -63,6 +63,8 @@ const FIXTURES: FixtureExpectation[] = [
   { dir: 'powershell', ruleId: 'R003', minScore: 80 },
   { dir: 'base64', ruleId: 'R004', minScore: 60 },
   { dir: 'creds', ruleId: 'R014', minScore: 80 },
+  { dir: 'curl-arg-passthrough', ruleId: 'R015', minScore: 60 },
+  { dir: 'hardcoded-secret', ruleId: 'R016', minScore: 10 },
   { dir: 'persistence', ruleId: 'R006', minScore: 60 },
   { dir: 'quarantine', ruleId: 'R007', minScore: 60 },
   { dir: 'multifile-curl', ruleId: 'R001', minScore: 80 },

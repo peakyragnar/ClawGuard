@@ -1,6 +1,6 @@
 {
   "pack_id": "clawguard.v1",
-  "pack_version": "1.1.1",
+  "pack_version": "1.1.2",
   "rules": [
     {
       "id": "R001",
@@ -61,6 +61,26 @@
       "match": "(?:\\bsecurity\\s+find-(?:generic-password|internet-password)\\b)|(?:\\bsqlite3\\b[^\\n]{0,160}\\bCookies\\b)|(?:\\bcat\\b[^\\n]{0,160}(?:(?:~\\/?\\.ssh\\/|\\.ssh\\/)(?:id_rsa|id_ed25519|id_ecdsa|id_dsa)(?!\\.pub\\b)|~\\/?\\.aws\\/credentials|\\.env(?!\\.(?:example|sample|template)\\b)|Keychains?|Cookies))|(?:\\bcp\\b[^\\n]{0,160}(?:(?:~\\/?\\.ssh\\/|\\.ssh\\/)(?:id_rsa|id_ed25519|id_ecdsa|id_dsa)(?!\\.pub\\b)|~\\/?\\.aws\\/credentials))|(?:\\b(?:tar|zip)\\b[^\\n]{0,160}(?:~\\/?\\.ssh\\b|~\\/?\\.aws\\b))",
       "flags": "gi",
       "score": 90
+    },
+    {
+      "id": "R015",
+      "title": "curl argument passthrough ($@/$*)",
+      "severity": "high",
+      "reason_code": "command_injection",
+      "selectors": ["codeblock", "file", "markdown"],
+      "match": "\\bcurl\\b[\\s\\S]{0,400}?(?:\\$@|\\$\\*|\"\\$@\"|\"\\$\\*\")",
+      "flags": "gi",
+      "score": 60
+    },
+    {
+      "id": "R016",
+      "title": "hardcoded API token/secret",
+      "severity": "low",
+      "reason_code": "hardcoded_secret",
+      "selectors": ["codeblock", "file", "markdown"],
+      "match": "\\b[\\w-]*(?:token|api[_-]?key|secret)[\\w-]*\\b[^\\n]{0,120}(?::|=)[^\\n]{0,160}\\b[a-f0-9]{32,}\\b",
+      "flags": "gi",
+      "score": 0
     },
     {
       "id": "R006",

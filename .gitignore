@@ -4,3 +4,5 @@ dist
 .DS_Store
 *.log
 tmp
+clawguard.policy.json
+.clawguard/
