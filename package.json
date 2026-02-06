@@ -10,7 +10,8 @@
     "build": "pnpm -r build",
     "test": "pnpm -r test",
     "lint": "pnpm -r lint",
-    "clawguard": "node packages/cli/dist/cli.js"
+    "clawguard": "node packages/cli/dist/cli.js",
+    "dev:scan-clawhub-bundles": "pnpm -r build && node scripts/scan-clawhub-bundles.mjs --limit 200 --out /tmp/clawhub-bundles-200.jsonl"
   },
   "devDependencies": {
     "@types/node": "^22.19.7",
