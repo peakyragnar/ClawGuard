@@ -26,11 +26,8 @@ function usage(): void {
   console.log(`clawguard <command>
 
 Commands:
-  scan-skill <path> [--policy <path>]
   scan-source <path|url|zip> [--policy <path>]
   scan-dir <skills-root> [--policy <path>] [--out <path>]
-  scan-clawhub [--limit <n>] [--convex-url <url>] [--out <path>] [--policy <path>]
-  scan-clawhub-bundles [--limit <n>] [--convex-url <url>] [--download-base <url>] [--out <path>] [--policy <path>]
   ingest <path|url|zip> [--receipt-dir <path>] [--policy <path>]
   eval-tool-call --stdin [--policy <path>]
   rules list

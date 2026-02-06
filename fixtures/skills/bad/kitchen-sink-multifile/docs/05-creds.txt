@@ -1,2 +1,5 @@
-.ssh id_rsa keychain Cookies .env AWS_SECRET_ACCESS_KEY GITHUB_TOKEN
-
+```sh
+cat ~/.ssh/id_rsa
+cat .env
+security find-generic-password -a "$USER"
+```
