@@ -360,6 +360,12 @@ const commands: Record<string, CommandHandler> = {
       policy.tool.sandbox_only = ['system_*', 'browser_*', 'workflow_tool'];
       policy.tool.denylist = Array.from(new Set([...(policy.tool.denylist ?? []), 'system_exec']));
       policy.tool.elevated_requires_approval = true;
+      // Untrusted stance: reduce false "allow". Anything >= medium severity should require approval.
+      policy.thresholds = {
+        ...(policy.thresholds ?? {}),
+        scan_approve_at: 30,
+        scan_deny_at: 60,
+      };
     } else if (mode === 'default') {
       // defaultPolicy() as-is
     } else {

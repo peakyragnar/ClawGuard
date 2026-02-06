@@ -43,3 +43,21 @@ test('cli scan-tree finds nested skills and returns deny when any skill is denie
   });
   assert.equal(result.code, 2);
 });
+
+test('cli policy init --mode untrusted writes stricter thresholds', async () => {
+  const { mkdtemp, readFile } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const dir = await mkdtemp(join(tmpdir(), 'clawguard-policy-'));
+  const outPath = join(dir, 'policy.json');
+
+  const result = await new Promise<{ code: number | null }>((resolve) => {
+    const child = spawn(process.execPath, [cliPath, 'policy', 'init', '--mode', 'untrusted', '--path', outPath], { stdio: 'ignore' });
+    child.on('close', (code) => resolve({ code }));
+  });
+  assert.equal(result.code, 0);
+
+  const raw = await readFile(outPath, 'utf8');
+  const parsed = JSON.parse(raw) as any;
+  assert.equal(parsed.thresholds.scan_approve_at, 30);
+  assert.equal(parsed.thresholds.scan_deny_at, 60);
+});
