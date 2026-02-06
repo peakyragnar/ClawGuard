@@ -1,6 +1,6 @@
 {
   "pack_id": "clawguard.v1",
-  "pack_version": "1.1.7",
+  "pack_version": "1.1.8",
   "rules": [
     {
       "id": "R001",
@@ -149,6 +149,16 @@
       "reason_code": "supply_chain_install",
       "selectors": ["codeblock", "file", "markdown"],
       "match": "(?:\\bpip(?:3)?\\b[^\\n]{0,120}\\binstall\\b[^\\n]{0,160}\\bgit\\+https?:\\/\\/[^\\s\\\"']+@(?:main|master|head)\\b)|(?:\\bpython\\b[^\\n]{0,40}-m\\s+pip\\b[^\\n]{0,120}\\binstall\\b[^\\n]{0,160}\\bgit\\+https?:\\/\\/[^\\s\\\"']+@(?:main|master|head)\\b)|(?:\\bgit\\s+clone\\b[^\\n]{0,200}(?:--branch\\s+(?:main|master)|-b\\s+(?:main|master))\\b)|(?:\\b(?:npm|pnpm|yarn)\\b[^\\n]{0,120}\\b(?:add|install|i)\\b[^\\n]{0,160}(?:github:|git\\+https?:\\/\\/)[^\\s\\\"']+@(?:main|master|head)\\b)",
+      "flags": "gi",
+      "score": 30
+    },
+    {
+      "id": "R024",
+      "title": "modifies shell profile (zshrc/bashrc) for persistence",
+      "severity": "medium",
+      "reason_code": "shell_profile_modification",
+      "selectors": ["codeblock", "file", "markdown"],
+      "match": "(?:\\b(?:sed|echo|printf|tee|cat)\\b[^\\n]{0,260}(?:~\\/?\\.(?:zshrc|bashrc|bash_profile|profile|zprofile|zshenv)|~\\/?\\.config\\/fish\\/config\\.fish)\\b)|(?:\\bsource\\b[^\\n]{0,120}(?:~\\/?\\.(?:zshrc|bashrc|bash_profile|profile|zprofile|zshenv)|~\\/?\\.config\\/fish\\/config\\.fish)\\b)",
       "flags": "gi",
       "score": 30
     },

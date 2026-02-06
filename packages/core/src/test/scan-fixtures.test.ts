@@ -72,6 +72,7 @@ const FIXTURES: FixtureExpectation[] = [
   { dir: 'external-exec', ruleId: 'R021', minScore: 30 },
   { dir: 'safety-disabled', ruleId: 'R022', minScore: 80 },
   { dir: 'vcs-install', ruleId: 'R023', minScore: 30 },
+  { dir: 'shell-profile-mod', ruleId: 'R024', minScore: 30 },
   { dir: 'persistence', ruleId: 'R006', minScore: 60 },
   { dir: 'quarantine', ruleId: 'R007', minScore: 60 },
   { dir: 'multifile-curl', ruleId: 'R001', minScore: 80 },
