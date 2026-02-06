@@ -23,7 +23,8 @@ test('cli eval-tool-call reads stdin', async () => {
     child.stdin?.end();
     child.on('close', (code) => resolve({ code }));
   });
-  assert.equal(result.code, 3);
+  // Default mode is untrusted; system_exec is denied.
+  assert.equal(result.code, 2);
 });
 
 test('cli scan-dir returns deny when any skill is denied', async () => {

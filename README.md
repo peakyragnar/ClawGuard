@@ -30,6 +30,7 @@ echo '{"tool_name":"system_exec","args":{"cmd":"curl","args":["https://x.com"]}}
 
 ## Design
 See `simple-design-principles.md`.
+See `trust-model.md` for `untrusted` vs `trusted`.
 
 ## License
 Apache-2.0. See `LICENSE`.

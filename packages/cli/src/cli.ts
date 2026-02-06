@@ -15,6 +15,14 @@ import {
 import { buildSkillBundleFromSource } from './source.js';
 import { clampInt } from './limits.js';
 import { bundleContentHash, bundleManifestHash, policyHash, type SkillReceipt } from './receipt.js';
+import {
+  addTrustRecord,
+  defaultTrustStorePath,
+  loadTrustStore,
+  removeTrustByHash,
+  trustRecordForBundle,
+  trustStatusForBundle,
+} from './trust.js';
 
 type CommandHandler = (args: string[]) => Promise<number>;
 
@@ -22,14 +30,18 @@ function usage(): void {
   console.log(`clawguard <command>
 
 Commands:
-  scan-source <path|url|zip> [--policy <path>]
-  scan-dir <skills-root> [--policy <path>] [--out <path>]
-  scan-tree <root> [--policy <path>] [--out <path>] [--max-skills <n>]
-  ingest <path|url|zip> [--receipt-dir <path>] [--policy <path>]
-  eval-tool-call --stdin [--policy <path>]
+  scan-source <path|url|zip> [--mode <untrusted|trusted>] [--policy <path>]
+  scan-dir <skills-root> [--mode <untrusted|trusted>] [--policy <path>] [--out <path>]
+  scan-tree <root> [--mode <untrusted|trusted>] [--policy <path>] [--out <path>] [--max-skills <n>]
+  ingest <path|url|zip> [--mode <untrusted|trusted>] [--receipt-dir <path>] [--policy <path>]
+  eval-tool-call --stdin [--mode <untrusted|trusted>] [--policy <path>]
   rules list
   rules explain <id>
   policy init [--path <path>] [--mode <default|untrusted>]
+  trust add <path|url|zip> [--trust-store <path>]
+  trust check <path|url|zip> [--trust-store <path>]
+  trust list [--trust-store <path>]
+  trust remove <content_sha256> [--trust-store <path>]
 `);
 }
 
@@ -51,7 +63,34 @@ async function loadPolicyFromArgs(args: string[]): Promise<Policy> {
     const data = await readJsonFile(path);
     return data as Policy;
   }
-  return defaultPolicy();
+  const mode = readArgValue(args, '--mode') ?? 'untrusted';
+  if (mode !== 'untrusted' && mode !== 'trusted') {
+    throw new Error('--mode must be untrusted|trusted');
+  }
+  const policy = defaultPolicy();
+  if (mode === 'untrusted') {
+    policy.tool = policy.tool ?? {};
+    policy.tool.sandbox_only = ['system_*', 'browser_*', 'workflow_tool'];
+    policy.tool.denylist = Array.from(new Set([...(policy.tool.denylist ?? []), 'system_exec']));
+    policy.tool.elevated_requires_approval = true;
+    policy.thresholds = {
+      ...(policy.thresholds ?? {}),
+      scan_approve_at: 30,
+      scan_deny_at: 60,
+    };
+  } else {
+    // trusted: still guarded (approvals + deny rules), but not sandbox-only by default
+    policy.tool = policy.tool ?? {};
+    policy.tool.sandbox_only = [];
+    policy.tool.denylist = (policy.tool.denylist ?? []).filter((t) => t !== 'system_exec');
+    policy.tool.elevated_requires_approval = true;
+    policy.thresholds = {
+      ...(policy.thresholds ?? {}),
+      scan_approve_at: 40,
+      scan_deny_at: 80,
+    };
+  }
+  return policy;
 }
 
 function actionForScore(report: { risk_score: number }, policy: Policy): 'deny' | 'needs_approval' | 'allow' {
@@ -143,6 +182,8 @@ const commands: Record<string, CommandHandler> = {
       console.error('scan-source requires <path|url|zip>');
       return 1;
     }
+    const requestedMode = readArgValue(args, '--mode') ?? 'untrusted';
+    const hasPolicyOverride = Boolean(readArgValue(args, '--policy'));
     const policy = await loadPolicyFromArgs(args);
 
     const timeoutMsRaw = readArgValue(args, '--timeout-ms');
@@ -157,7 +198,20 @@ const commands: Record<string, CommandHandler> = {
 
     const bundle = await buildSkillBundleFromSource(target, limits);
     const report = scanSkillBundle(bundle);
-    const action = actionForScore(report, policy);
+
+    const trustStorePath = readArgValue(args, '--trust-store') ?? defaultTrustStorePath(process.cwd());
+    const trustStore = await loadTrustStore(trustStorePath);
+    const trust = trustStatusForBundle(bundle, trustStore);
+
+    let effectivePolicy = policy;
+    let mode_effective = requestedMode;
+    if (!hasPolicyOverride && requestedMode === 'trusted' && trust.status !== 'trusted') {
+      // trusted requires an explicit pin; otherwise we fall back to untrusted stance
+      effectivePolicy = await loadPolicyFromArgs(['--mode', 'untrusted']);
+      mode_effective = 'untrusted';
+    }
+
+    const action = actionForScore(report, effectivePolicy);
     console.log(
       JSON.stringify(
         {
@@ -169,10 +223,14 @@ const commands: Record<string, CommandHandler> = {
             ingest_warnings: bundle.ingest_warnings ?? [],
             source: bundle.source,
           },
+          mode_requested: requestedMode,
+          mode_effective,
+          trust,
+          trust_store: trustStorePath,
           action,
           policy_thresholds: {
-            scan_approve_at: policy.thresholds?.scan_approve_at ?? 40,
-            scan_deny_at: policy.thresholds?.scan_deny_at ?? 80,
+            scan_approve_at: effectivePolicy.thresholds?.scan_approve_at ?? 40,
+            scan_deny_at: effectivePolicy.thresholds?.scan_deny_at ?? 80,
           },
           report,
         },
@@ -375,6 +433,62 @@ const commands: Record<string, CommandHandler> = {
     await import('node:fs/promises').then(({ writeFile }) => writeFile(path, `${JSON.stringify(policy, null, 2)}\n`, 'utf8'));
     console.log(path);
     return 0;
+  },
+
+  async trust(args) {
+    const sub = args[0];
+    const storePath = readArgValue(args, '--trust-store') ?? readArgValue(args, '--store') ?? defaultTrustStorePath(process.cwd());
+
+    if (sub === 'list') {
+      const store = await loadTrustStore(storePath);
+      console.log(JSON.stringify(store, null, 2));
+      return 0;
+    }
+
+    if (sub === 'remove' && args[1]) {
+      const next = await removeTrustByHash(storePath, args[1]);
+      console.log(JSON.stringify({ trust_store: storePath, removed: args[1], records: next.records.length }, null, 2));
+      return 0;
+    }
+
+    const target = args.find((arg) => !arg.startsWith('--') && arg !== sub);
+    if (!target) {
+      console.error('trust requires add|check <path|url|zip> or list or remove <content_sha256>');
+      return 1;
+    }
+
+    if (sub === 'add') {
+      const bundle = await buildSkillBundleFromSource(target);
+      const record = trustRecordForBundle(bundle, target);
+      const next = await addTrustRecord(storePath, record);
+      console.log(JSON.stringify({ trust_store: storePath, added: record, records: next.records.length }, null, 2));
+      return 0;
+    }
+
+    if (sub === 'check') {
+      const bundle = await buildSkillBundleFromSource(target);
+      const store = await loadTrustStore(storePath);
+      const trust = trustStatusForBundle(bundle, store);
+      const { sha256 } = bundleContentHash(bundle);
+      const manifestSha = bundleManifestHash(bundle) ?? void 0;
+      console.log(
+        JSON.stringify(
+          {
+            trust_store: storePath,
+            source_input: target,
+            content_sha256: sha256,
+            ...(manifestSha ? { manifest_sha256: manifestSha } : {}),
+            trust,
+          },
+          null,
+          2,
+        ),
+      );
+      return trust.status === 'trusted' ? 0 : 3;
+    }
+
+    console.error('trust requires add|check|list|remove');
+    return 1;
   },
 };
 

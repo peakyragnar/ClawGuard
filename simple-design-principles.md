@@ -75,3 +75,5 @@ We do not promise "catch 100% of malware". What we do promise is: you get a cons
 - route proposed tool calls through `./clawguard eval-tool-call --stdin`
 - enforce `deny` and `sandbox_only` in your executor (do not "just run it anyway").
 
+## Trust Model
+See `trust-model.md` for the simple `untrusted` vs `trusted` model (trusted requires a local hash pin).

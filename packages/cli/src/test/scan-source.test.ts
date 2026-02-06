@@ -134,7 +134,8 @@ test('scan-source supports zip URL (scans SKILL.md inside)', async () => {
   });
   server.close();
 
-  assert.equal(result.code, 3);
+  // Default mode is untrusted; base64|sh is denied at 60.
+  assert.equal(result.code, 2);
   const parsed = JSON.parse(result.stdout) as any;
   assert.ok(parsed.report.findings.some((f: any) => f.rule_id === 'R004'));
 });
