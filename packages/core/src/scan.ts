@@ -90,10 +90,13 @@ export function scanSkillBundle(bundle: SkillBundle): ScanReport {
   }
 
   const findings = dedupeFindings(applyRules(signals, rulePack.rules));
-  const scoreSum = findings.reduce((sum, finding) => {
+  const scoresByRule = new Map<string, number>();
+  for (const finding of findings) {
+    if (scoresByRule.has(finding.rule_id)) continue;
     const score = rulePack.rules.find((rule) => rule.id === finding.rule_id)?.score ?? 0;
-    return sum + score;
-  }, 0);
+    scoresByRule.set(finding.rule_id, score);
+  }
+  const scoreSum = Array.from(scoresByRule.values()).reduce((sum, score) => sum + score, 0);
   const floor = findings.reduce((max, finding) => Math.max(max, severityFloor(finding.severity)), 0);
   const riskScore = clamp(Math.max(scoreSum, floor), 0, 100);
 
