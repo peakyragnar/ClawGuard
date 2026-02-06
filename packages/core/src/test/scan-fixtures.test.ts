@@ -77,3 +77,13 @@ for (const fixture of FIXTURES) {
   });
 }
 
+test('scan fixtures flags kitchen-sink (all rules)', async () => {
+  const bundle = await buildFixtureBundle('kitchen-sink');
+  const report = scanSkillBundle(bundle);
+  assert.equal(report.api_version, 1);
+  const ids = new Set(report.findings.map((finding) => finding.rule_id));
+  for (const id of ['R001', 'R002', 'R003', 'R004', 'R005', 'R006', 'R007']) {
+    assert.ok(ids.has(id), `missing finding for ${id}`);
+  }
+  assert.ok(report.risk_score >= 90);
+});
