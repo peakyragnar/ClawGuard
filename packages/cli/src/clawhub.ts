@@ -119,7 +119,8 @@ export type ClawhubClient = {
 export function createClawhubClient(params: { baseUrl: string; limits: ClawhubScanLimits }): ClawhubClient {
   const baseUrl = params.baseUrl.replace(/\/+$/, '');
   const { limits } = params;
-  const commonHeaders = { 'Content-Type': 'application/json', 'Convex-Client': 'clawguard' } as const;
+  // Convex expects `{client_name}-{semver}`.
+  const commonHeaders = { 'Content-Type': 'application/json', 'Convex-Client': 'clawguard-0.1.0' } as const;
 
   async function doQuery<T>(path: string, args: Record<string, unknown>): Promise<T> {
     const body = JSON.stringify({ path, format: 'convex_encoded_json', args: [args] });
@@ -189,4 +190,3 @@ export async function fetchSkillReadme(
   const text = typeof value?.text === 'string' ? value.text : '';
   return { path, text };
 }
-
