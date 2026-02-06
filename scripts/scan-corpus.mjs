@@ -131,6 +131,7 @@ Options:
   --max-skills <n>          default: 200 (hard max: 20000)
   --out <path>              default: /tmp/clawhub-corpus.jsonl
   --state <path>            default: ./.clawguard/corpus-state.json
+  --create-parent-dirs      default: true (set --no-create-parent-dirs to disable)
   --resume                  default: true (set --no-resume to ignore state)
   --include-vt              default: true (set --no-include-vt to skip VT/AI analysis)
   --convex-url <url>        default: https://wry-manatee-359.convex.cloud
@@ -153,6 +154,7 @@ Hard safety caps (can override some):
   const outPath = readArgValue(args, '--out') ?? '/tmp/clawhub-corpus.jsonl';
   const statePath = readArgValue(args, '--state') ?? `${process.cwd()}/.clawguard/corpus-state.json`;
 
+  const createParentDirs = !args.includes('--no-create-parent-dirs');
   const resume = !args.includes('--no-resume');
   const includeVt = !args.includes('--no-include-vt');
 
@@ -188,7 +190,28 @@ Hard safety caps (can override some):
     maxSkills: 20000,
   };
 
-  await mkdir(`${process.cwd()}/.clawguard`, { recursive: true });
+  if (createParentDirs) {
+    await mkdir(`${process.cwd()}/.clawguard`, { recursive: true });
+    const outDir = new URL(`file://${process.cwd()}/`).pathname; // stable base
+    // best-effort: only create the parent directory for the outPath if it's inside cwd
+    // (avoid surprising writes to arbitrary absolute paths).
+    try {
+      if (!outPath.startsWith('/tmp/') && outPath.startsWith(outDir)) {
+        const parent = outPath.split('/').slice(0, -1).join('/') || outDir;
+        await mkdir(parent, { recursive: true });
+      }
+    } catch {
+      // ignore
+    }
+    try {
+      if (!statePath.startsWith('/tmp/') && statePath.startsWith(outDir)) {
+        const parent = statePath.split('/').slice(0, -1).join('/') || outDir;
+        await mkdir(parent, { recursive: true });
+      }
+    } catch {
+      // ignore
+    }
+  }
 
   const client = createClawhubClient({ baseUrl: convexUrl, limits: LIMITS });
   const outStream = createWriteStream(outPath, { flags: resume ? 'a' : 'w' });
@@ -299,4 +322,3 @@ main().catch((err) => {
   console.error(String(err));
   process.exit(1);
 });
-
