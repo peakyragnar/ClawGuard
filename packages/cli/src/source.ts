@@ -174,7 +174,7 @@ function zipLimitsFromIngest(limits: IngestLimits): ZipLimits {
   };
 }
 
-function buildBundleFromZipBytes(bytes: Buffer, limits: IngestLimits, id: string): SkillBundle {
+function buildBundleFromZipBytesInternal(bytes: Buffer, limits: IngestLimits, id: string): SkillBundle {
   const zLimits = zipLimitsFromIngest(limits);
   const listing = listZipEntriesWithDiagnostics(bytes, zLimits);
   const entries = listing.entries;
@@ -225,6 +225,12 @@ function buildBundleFromZipBytes(bytes: Buffer, limits: IngestLimits, id: string
   return { id, entrypoint, files, manifest, source: 'unknown' };
 }
 
+export function buildSkillBundleFromZipBytes(bytes: Buffer, id: string, limits: Partial<IngestLimits> = {}): SkillBundle {
+  const merged: IngestLimits = { ...DEFAULT_INGEST_LIMITS, ...limits };
+  if (bytes.length > merged.maxZipBytes) throw new Error(`zip exceeds maxZipBytes=${merged.maxZipBytes}`);
+  return buildBundleFromZipBytesInternal(bytes, merged, id);
+}
+
 export type SourceSpec =
   | { kind: 'dir'; path: string }
   | { kind: 'file'; path: string }
@@ -245,7 +251,7 @@ export async function buildSkillBundleFromSource(raw: string, limits: Partial<In
       const bytes = await readFile(spec.path);
       if (bytes.length > merged.maxZipBytes) throw new Error(`file exceeds maxZipBytes=${merged.maxZipBytes}`);
       const id = basename(spec.path);
-      return buildBundleFromZipBytes(bytes, merged, id);
+      return buildBundleFromZipBytesInternal(bytes, merged, id);
     }
     return buildBundleFromDir(spec.path, merged);
   }
@@ -254,12 +260,12 @@ export async function buildSkillBundleFromSource(raw: string, limits: Partial<In
     const bytes = await readFile(spec.path);
     if (bytes.length > merged.maxZipBytes) throw new Error(`file exceeds maxZipBytes=${merged.maxZipBytes}`);
     const id = basename(spec.path);
-    return buildBundleFromZipBytes(bytes, merged, id);
+    return buildBundleFromZipBytesInternal(bytes, merged, id);
   }
 
   const { bytes, contentType } = await fetchBytesLimited(spec.url, { timeoutMs: merged.timeoutMs, maxBytes: merged.maxZipBytes, retries: merged.retries });
   if (isZipBytes(bytes, contentType)) {
-    return buildBundleFromZipBytes(bytes, merged, spec.url);
+    return buildBundleFromZipBytesInternal(bytes, merged, spec.url);
   }
   if (looksBinary(bytes)) throw new Error('remote content looks binary (expected SKILL.md or zip)');
   return {

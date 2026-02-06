@@ -14,9 +14,11 @@ import {
   type ToolCallContext,
 } from '@clawguard/core';
 import { createClawhubClient, fetchSkillReadme, listSkills, type ClawhubScanLimits } from './clawhub.js';
-import { buildSkillBundleFromSource } from './source.js';
+import { buildSkillBundleFromSource, buildSkillBundleFromZipBytes } from './source.js';
 import { clampInt } from './limits.js';
 import { bundleContentHash, bundleManifestHash, policyHash, type SkillReceipt } from './receipt.js';
+import { fetchBytesLimited } from './http.js';
+import { URL } from 'node:url';
 
 type CommandHandler = (args: string[]) => Promise<number>;
 
@@ -28,6 +30,7 @@ Commands:
   scan-source <path|url|zip> [--policy <path>]
   scan-dir <skills-root> [--policy <path>] [--out <path>]
   scan-clawhub [--limit <n>] [--convex-url <url>] [--out <path>] [--policy <path>]
+  scan-clawhub-bundles [--limit <n>] [--convex-url <url>] [--download-base <url>] [--out <path>] [--policy <path>]
   ingest <path|url|zip> [--receipt-dir <path>] [--policy <path>]
   eval-tool-call --stdin [--policy <path>]
   rules list
@@ -46,6 +49,17 @@ function readArgValue(args: string[], key: string): string | null {
   if (idx < 0) return null;
   const value = args[idx + 1];
   return value ? value : null;
+}
+
+function buildClawhubDownloadUrl(downloadBase: string, slug: string): string {
+  const u = new URL(downloadBase);
+  u.searchParams.set('slug', slug);
+  return u.toString();
+}
+
+function isZipBytes(bytes: Buffer, contentType: string | null): boolean {
+  if (contentType && contentType.toLowerCase().includes('zip')) return true;
+  return bytes.length >= 4 && bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04;
 }
 
 async function loadPolicyFromArgs(args: string[]): Promise<Policy> {
@@ -409,6 +423,105 @@ const commands: Record<string, CommandHandler> = {
     const deny = results.some((r: any) => r.action === 'deny');
     const needs = results.some((r: any) => r.action === 'needs_approval');
     return deny ? 2 : needs ? 3 : 0;
+  },
+
+  async 'scan-clawhub-bundles'(args) {
+    const policy = await loadPolicyFromArgs(args);
+    const outPath = readArgValue(args, '--out');
+    const limitRaw = readArgValue(args, '--limit');
+    const convexUrl = readArgValue(args, '--convex-url') ?? 'https://wry-manatee-359.convex.cloud';
+    const downloadBase = readArgValue(args, '--download-base') ?? 'https://auth.clawdhub.com/api/v1/download';
+
+    const limit = Math.min(500, Math.max(1, limitRaw ? Number.parseInt(limitRaw, 10) : 200));
+
+    const HARD_LIMITS: ClawhubScanLimits & { maxZipBytes: number; maxFiles: number; maxTotalBytes: number; maxZipEntryBytes: number } = {
+      maxSkills: 500,
+      maxListResponseBytes: 8_000_000,
+      maxSkillMdBytes: 512 * 1024,
+      timeoutMs: 12_000,
+      retries: 2,
+      concurrency: 4,
+      maxZipBytes: 25_000_000,
+      maxFiles: 800,
+      maxTotalBytes: 6_000_000,
+      maxZipEntryBytes: 1_000_000,
+    };
+
+    const client = createClawhubClient({ baseUrl: convexUrl, limits: HARD_LIMITS });
+    const skills = await listSkills(client, limit);
+
+    const results = await mapPool(skills, HARD_LIMITS.concurrency, async (entry) => {
+      const slug = entry.skill?.slug ?? 'unknown';
+      const owner = entry.ownerHandle ?? (entry.skill?.ownerUserId !== void 0 ? String(entry.skill.ownerUserId) : null);
+      const versionId = entry.latestVersion._id;
+      const version = entry.latestVersion.version ?? null;
+
+      try {
+        const url = buildClawhubDownloadUrl(downloadBase, slug);
+        const { bytes, contentType } = await fetchBytesLimited(url, {
+          timeoutMs: HARD_LIMITS.timeoutMs,
+          maxBytes: HARD_LIMITS.maxZipBytes,
+          retries: HARD_LIMITS.retries,
+        });
+        if (!isZipBytes(bytes, contentType)) {
+          return {
+            source: 'clawhub',
+            owner,
+            slug,
+            version,
+            versionId,
+            action: 'needs_approval' as const,
+            error: `download did not return zip (content-type=${contentType ?? 'unknown'})`,
+          };
+        }
+
+        const bundle = buildSkillBundleFromZipBytes(bytes, owner ? `${owner}/${slug}` : slug, {
+          maxFiles: HARD_LIMITS.maxFiles,
+          maxTotalBytes: HARD_LIMITS.maxTotalBytes,
+          maxZipBytes: HARD_LIMITS.maxZipBytes,
+          maxZipEntryBytes: HARD_LIMITS.maxZipEntryBytes,
+          timeoutMs: HARD_LIMITS.timeoutMs,
+          retries: HARD_LIMITS.retries,
+        });
+        bundle.source = 'clawhub';
+        bundle.version = version ?? void 0;
+
+        const report = scanSkillBundle(bundle);
+        const action = actionForScore(report, policy);
+        return {
+          source: 'clawhub',
+          owner,
+          slug,
+          version,
+          versionId,
+          action,
+          risk_score: report.risk_score,
+          findings: report.findings,
+          manifest_entries: bundle.manifest?.length ?? 0,
+          ingest_warnings: bundle.ingest_warnings ?? [],
+        };
+      } catch (err) {
+        return {
+          source: 'clawhub',
+          owner,
+          slug,
+          version,
+          versionId,
+          action: 'needs_approval' as const,
+          error: String(err),
+        };
+      }
+    });
+
+    if (outPath) {
+      const jsonl = results.map((row) => JSON.stringify(row)).join('\n') + '\n';
+      await writeFile(outPath, jsonl, 'utf8');
+      console.log(outPath);
+    } else {
+      console.log(JSON.stringify(results, null, 2));
+    }
+
+    return results.some((row: any) => row.action === 'deny') ? 2 : results.some((row: any) => row.action === 'needs_approval') ? 3 : 0;
   },
 
   async 'eval-tool-call'(args) {
