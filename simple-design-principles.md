@@ -24,6 +24,7 @@ This is not a malware oracle. It is a deterministic safety layer that makes risk
 
 - `needs_approval`
   - Human must approve. Default for "elevated" tools (shell, filesystem writes, browser) in the default policy.
+  - Also used for high-blast-radius *capabilities* that are not necessarily malware (example: on-chain money movement).
 
 - `deny`
   - Too risky. Do not install or execute.

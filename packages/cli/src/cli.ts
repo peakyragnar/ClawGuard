@@ -26,6 +26,30 @@ import {
 
 type CommandHandler = (args: string[]) => Promise<number>;
 
+function summarizeReasons(report: { findings: Array<{ rule_id: string; severity: string; reason_code: string }> }): Array<{
+  rule_id: string;
+  title: string;
+  severity: string;
+  reason_code: string;
+}> {
+  const pack = loadDefaultRulePack();
+  const byId = new Map(pack.rules.map((r) => [r.id, r] as const));
+  const out: Array<{ rule_id: string; title: string; severity: string; reason_code: string }> = [];
+  const seen = new Set<string>();
+  for (const finding of report.findings ?? []) {
+    if (seen.has(finding.rule_id)) continue;
+    seen.add(finding.rule_id);
+    const rule = byId.get(finding.rule_id);
+    out.push({
+      rule_id: finding.rule_id,
+      title: rule?.title ?? finding.rule_id,
+      severity: finding.severity,
+      reason_code: finding.reason_code,
+    });
+  }
+  return out;
+}
+
 function usage(): void {
   console.log(`clawguard <command>
 
@@ -167,6 +191,7 @@ const commands: Record<string, CommandHandler> = {
             scan_approve_at: policy.thresholds?.scan_approve_at ?? 40,
             scan_deny_at: policy.thresholds?.scan_deny_at ?? 80,
           },
+          reasons: summarizeReasons(report),
           report,
         },
         null,
@@ -232,6 +257,7 @@ const commands: Record<string, CommandHandler> = {
             scan_approve_at: effectivePolicy.thresholds?.scan_approve_at ?? 40,
             scan_deny_at: effectivePolicy.thresholds?.scan_deny_at ?? 80,
           },
+          reasons: summarizeReasons(report),
           report,
         },
         null,
