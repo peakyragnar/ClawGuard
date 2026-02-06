@@ -9,7 +9,7 @@ export type SkillFile = {
 
 export type SkillBundle = {
   id: string;
-  source?: 'local' | 'registry' | 'git' | 'unknown';
+  source?: 'local' | 'registry' | 'git' | 'clawhub' | 'unknown';
   version?: string;
   entrypoint: string;
   files: SkillFile[];

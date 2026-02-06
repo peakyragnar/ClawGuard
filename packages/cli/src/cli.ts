@@ -12,6 +12,7 @@ import {
   type SkillBundle,
   type ToolCallContext,
 } from '@clawguard/core';
+import { createClawhubClient, fetchSkillReadme, listSkills, type ClawhubScanLimits } from './clawhub.js';
 
 type CommandHandler = (args: string[]) => Promise<number>;
 
@@ -21,6 +22,7 @@ function usage(): void {
 Commands:
   scan-skill <path> [--policy <path>]
   scan-dir <skills-root> [--policy <path>] [--out <path>]
+  scan-clawhub [--limit <n>] [--convex-url <url>] [--out <path>] [--policy <path>]
   eval-tool-call --stdin [--policy <path>]
   rules list
   rules explain <id>
@@ -160,6 +162,21 @@ function actionForScore(report: { risk_score: number }, policy: Policy): 'deny' 
   return 'allow';
 }
 
+async function mapPool<T, R>(items: T[], concurrency: number, fn: (item: T, idx: number) => Promise<R>): Promise<R[]> {
+  const out = new Array<R>(items.length);
+  let idx = 0;
+  const workers = Array.from({ length: Math.max(1, concurrency) }, async () => {
+    for (;;) {
+      const myIdx = idx;
+      idx += 1;
+      if (myIdx >= items.length) break;
+      out[myIdx] = await fn(items[myIdx] as T, myIdx);
+    }
+  });
+  await Promise.all(workers);
+  return out;
+}
+
 const commands: Record<string, CommandHandler> = {
   async 'scan-skill'(args) {
     const target = args.find((arg) => !arg.startsWith('--'));
@@ -218,6 +235,91 @@ const commands: Record<string, CommandHandler> = {
     }
 
     return results.some((row) => row.action === 'deny') ? 2 : results.some((row) => row.action === 'needs_approval') ? 3 : 0;
+  },
+
+  async 'scan-clawhub'(args) {
+    const policy = await loadPolicyFromArgs(args);
+    const outPath = readArgValue(args, '--out');
+    const limitRaw = readArgValue(args, '--limit');
+    const convexUrl = readArgValue(args, '--convex-url') ?? 'https://wry-manatee-359.convex.cloud';
+
+    const limit = Math.min(500, Math.max(1, limitRaw ? Number.parseInt(limitRaw, 10) : 200));
+
+    const HARD_LIMITS: ClawhubScanLimits = {
+      maxSkills: 500,
+      maxListResponseBytes: 8_000_000,
+      maxSkillMdBytes: 512 * 1024,
+      timeoutMs: 12_000,
+      retries: 2,
+      concurrency: 6,
+    };
+
+    const client = createClawhubClient({ baseUrl: convexUrl, limits: HARD_LIMITS });
+    const skills = await listSkills(client, limit);
+
+    const results = await mapPool(skills, HARD_LIMITS.concurrency, async (entry) => {
+      const slug = entry.skill?.slug ?? 'unknown';
+      const owner = entry.ownerHandle ?? (entry.skill?.ownerUserId !== void 0 ? String(entry.skill.ownerUserId) : null);
+      const versionId = entry.latestVersion._id;
+      const version = entry.latestVersion.version ?? null;
+
+      try {
+        const readme = await fetchSkillReadme(client, versionId);
+        const bytes = Buffer.byteLength(readme.text, 'utf8');
+        if (bytes > HARD_LIMITS.maxSkillMdBytes) {
+          return {
+            source: 'clawhub',
+            owner,
+            slug,
+            version,
+            versionId,
+            action: 'needs_approval' as const,
+            error: `SKILL.md exceeds max bytes (${bytes} > ${HARD_LIMITS.maxSkillMdBytes})`,
+          };
+        }
+
+        const bundle: SkillBundle = {
+          id: owner ? `${owner}/${slug}` : slug,
+          entrypoint: 'SKILL.md',
+          files: [{ path: 'SKILL.md', content_text: readme.text }],
+          source: 'clawhub',
+        };
+        const report = scanSkillBundle(bundle);
+        const action = actionForScore(report, policy);
+        return {
+          source: 'clawhub',
+          owner,
+          slug,
+          version,
+          versionId,
+          action,
+          risk_score: report.risk_score,
+          findings: report.findings,
+        };
+      } catch (err) {
+        return {
+          source: 'clawhub',
+          owner,
+          slug,
+          version,
+          versionId,
+          action: 'needs_approval' as const,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    });
+
+    if (outPath) {
+      const jsonl = results.map((row) => JSON.stringify(row)).join('\n') + '\n';
+      await writeFile(outPath, jsonl, 'utf8');
+      console.log(outPath);
+    } else {
+      console.log(JSON.stringify(results, null, 2));
+    }
+
+    const deny = results.some((r: any) => r.action === 'deny');
+    const needs = results.some((r: any) => r.action === 'needs_approval');
+    return deny ? 2 : needs ? 3 : 0;
   },
 
   async 'eval-tool-call'(args) {
