@@ -1,14 +1,73 @@
 import { readFile, readdir, stat, lstat } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import type { SkillBundle } from '@clawguard/core';
+import type { SkillBundle, SkillManifestEntry } from '@clawguard/core';
 import { DEFAULT_INGEST_LIMITS, type IngestLimits } from './limits.js';
 import { fetchBytesLimited } from './http.js';
 import { decodeUtf8, isLikelyTextPath, looksBinary } from './text.js';
-import { extractZipEntry, listZipEntries, selectZipFilesForScan, type ZipLimits } from './zip.js';
+import {
+  extractZipEntry,
+  listZipEntriesWithDiagnostics,
+  selectZipFilesForScan,
+  type ZipLimits,
+  zipEntryIsExecutable,
+  zipEntryIsSymlink,
+} from './zip.js';
 
 function shouldSkipDir(name: string): boolean {
   return name === '.git' || name === 'node_modules' || name === 'dist' || name === 'build' || name === '.pnpm';
+}
+
+function isArchivePath(path: string): boolean {
+  const lower = path.toLowerCase();
+  return (
+    lower.endsWith('.zip') ||
+    lower.endsWith('.tar') ||
+    lower.endsWith('.tgz') ||
+    lower.endsWith('.tar.gz') ||
+    lower.endsWith('.gz') ||
+    lower.endsWith('.bz2') ||
+    lower.endsWith('.xz') ||
+    lower.endsWith('.7z') ||
+    lower.endsWith('.rar')
+  );
+}
+
+function isSafeBinaryAssetPath(path: string): boolean {
+  const lower = path.toLowerCase();
+  return (
+    lower.endsWith('.png') ||
+    lower.endsWith('.jpg') ||
+    lower.endsWith('.jpeg') ||
+    lower.endsWith('.gif') ||
+    lower.endsWith('.webp') ||
+    lower.endsWith('.ico') ||
+    lower.endsWith('.mp3') ||
+    lower.endsWith('.wav') ||
+    lower.endsWith('.mp4') ||
+    lower.endsWith('.mov') ||
+    lower.endsWith('.pdf') ||
+    lower.endsWith('.woff') ||
+    lower.endsWith('.woff2') ||
+    lower.endsWith('.ttf') ||
+    lower.endsWith('.otf')
+  );
+}
+
+function isSuspiciousBinaryPath(path: string): boolean {
+  const lower = path.toLowerCase();
+  return (
+    lower.endsWith('.exe') ||
+    lower.endsWith('.dll') ||
+    lower.endsWith('.dylib') ||
+    lower.endsWith('.so') ||
+    lower.endsWith('.node') ||
+    lower.endsWith('.app') ||
+    lower.endsWith('.pkg') ||
+    lower.endsWith('.dmg') ||
+    lower.endsWith('.msi') ||
+    lower.endsWith('.wasm')
+  );
 }
 
 async function readTextFile(path: string): Promise<string | null> {
@@ -19,8 +78,11 @@ async function readTextFile(path: string): Promise<string | null> {
   }
 }
 
-async function walkDir(root: string, limits: IngestLimits): Promise<string[]> {
-  const out: string[] = [];
+type WalkItem = { fullPath: string; relPath: string; kind: 'file' | 'symlink' };
+
+async function walkDir(root: string, limits: IngestLimits): Promise<{ items: WalkItem[]; warnings: string[] }> {
+  const out: WalkItem[] = [];
+  const warnings: string[] = [];
   const stack: Array<{ dir: string; depth: number }> = [{ dir: root, depth: 0 }];
   while (stack.length > 0) {
     const item = stack.pop();
@@ -29,39 +91,74 @@ async function walkDir(root: string, limits: IngestLimits): Promise<string[]> {
     if (depth > 8) continue;
     const entries = await readdir(dir, { withFileTypes: true });
     for (const entry of entries) {
-      if (out.length >= limits.maxFiles) return out;
+      if (out.length >= limits.maxFiles) {
+        warnings.push(`maxFiles reached (${limits.maxFiles})`);
+        return { items: out, warnings };
+      }
       const full = join(dir, entry.name);
       const st = await lstat(full).catch(() => null);
-      if (st?.isSymbolicLink()) continue;
+      if (st?.isSymbolicLink()) {
+        out.push({ fullPath: full, relPath: full.replace(`${root}/`, ''), kind: 'symlink' });
+        continue;
+      }
       if (entry.isDirectory()) {
         if (shouldSkipDir(entry.name)) continue;
         stack.push({ dir: full, depth: depth + 1 });
       } else if (entry.isFile()) {
-        out.push(full);
+        out.push({ fullPath: full, relPath: full.replace(`${root}/`, ''), kind: 'file' });
       }
     }
   }
-  return out;
+  return { items: out, warnings };
 }
 
 async function buildBundleFromDir(path: string, limits: IngestLimits): Promise<SkillBundle> {
   const files: SkillBundle['files'] = [];
+  const manifest: SkillManifestEntry[] = [];
+  const ingest_warnings: string[] = [];
   let totalBytes = 0;
-  const paths = await walkDir(path, limits);
-  for (const filePath of paths) {
-    const rel = filePath.replace(`${path}/`, '');
+  const walked = await walkDir(path, limits);
+  ingest_warnings.push(...walked.warnings);
+
+  for (const item of walked.items) {
+    const rel = item.relPath;
+    if (item.kind === 'symlink') {
+      manifest.push({ path: rel, is_symlink: true, skipped_reason: 'symlink_skipped', source_kind: 'dir' });
+      continue;
+    }
+
+    const st = await stat(item.fullPath).catch(() => null);
+    const size = st?.size ?? 0;
+    const mode = st?.mode ?? 0;
+    const is_executable = (mode & 0o111) !== 0;
+    const is_archive = isArchivePath(rel);
+    const is_binary = isSuspiciousBinaryPath(rel);
+    manifest.push({
+      path: rel,
+      size_bytes: size,
+      is_executable,
+      is_archive,
+      is_binary,
+      source_kind: 'dir',
+    });
+
     if (!isLikelyTextPath(rel)) continue;
-    const size = await stat(filePath).then((s) => s.size).catch(() => 0);
     if (size <= 0) continue;
-    if (size > limits.maxFileBytes) continue;
-    if (totalBytes + size > limits.maxTotalBytes) break;
-    const content = await readTextFile(filePath);
+    if (size > limits.maxFileBytes) {
+      ingest_warnings.push(`skipped ${rel}: exceeds maxFileBytes (${limits.maxFileBytes})`);
+      continue;
+    }
+    if (totalBytes + size > limits.maxTotalBytes) {
+      ingest_warnings.push(`maxTotalBytes reached (${limits.maxTotalBytes})`);
+      break;
+    }
+    const content = await readTextFile(item.fullPath);
     if (content === null) continue;
     totalBytes += size;
     files.push({ path: rel, content_text: content });
   }
   const entrypoint = existsSync(join(path, 'SKILL.md')) ? 'SKILL.md' : basename(path);
-  return { id: basename(path), entrypoint, files, source: 'local' };
+  return { id: basename(path), entrypoint, files, manifest, ingest_warnings, source: 'local' };
 }
 
 function isZipBytes(bytes: Buffer, contentType: string | null): boolean {
@@ -79,10 +176,43 @@ function zipLimitsFromIngest(limits: IngestLimits): ZipLimits {
 
 function buildBundleFromZipBytes(bytes: Buffer, limits: IngestLimits, id: string): SkillBundle {
   const zLimits = zipLimitsFromIngest(limits);
-  const entries = listZipEntries(bytes, zLimits);
+  const listing = listZipEntriesWithDiagnostics(bytes, zLimits);
+  const entries = listing.entries;
   const picked = selectZipFilesForScan(entries, zLimits);
 
   const files: SkillBundle['files'] = [];
+  const manifest: SkillManifestEntry[] = [];
+
+  for (const raw of listing.invalidPaths) {
+    manifest.push({
+      path: raw,
+      skipped_reason: 'invalid_path',
+      raw_path: raw,
+      source_kind: 'zip',
+    });
+  }
+
+  for (const entry of entries) {
+    if (entry.isDirectory) {
+      manifest.push({ path: entry.name, is_directory: true, source_kind: 'zip' });
+      continue;
+    }
+    const is_symlink = zipEntryIsSymlink(entry);
+    const is_executable = zipEntryIsExecutable(entry);
+    const is_archive = isArchivePath(entry.name);
+    const likelyText = isLikelyTextPath(entry.name);
+    const is_binary = !likelyText && !isSafeBinaryAssetPath(entry.name) && isSuspiciousBinaryPath(entry.name);
+    manifest.push({
+      path: entry.name,
+      size_bytes: entry.uncompressedSize,
+      is_symlink,
+      is_executable,
+      is_archive,
+      is_binary,
+      source_kind: 'zip',
+    });
+  }
+
   for (const entry of picked) {
     if (!isLikelyTextPath(entry.name)) continue;
     const contentBytes = extractZipEntry(bytes, entry, zLimits);
@@ -92,7 +222,7 @@ function buildBundleFromZipBytes(bytes: Buffer, limits: IngestLimits, id: string
   }
 
   const entrypoint = files.some((f) => f.path.toLowerCase() === 'skill.md') ? 'SKILL.md' : 'SKILL.md';
-  return { id, entrypoint, files, source: 'unknown' };
+  return { id, entrypoint, files, manifest, source: 'unknown' };
 }
 
 export type SourceSpec =

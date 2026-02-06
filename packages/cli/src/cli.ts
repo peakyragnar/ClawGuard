@@ -16,7 +16,7 @@ import {
 import { createClawhubClient, fetchSkillReadme, listSkills, type ClawhubScanLimits } from './clawhub.js';
 import { buildSkillBundleFromSource } from './source.js';
 import { clampInt } from './limits.js';
-import { bundleContentHash, policyHash, type SkillReceipt } from './receipt.js';
+import { bundleContentHash, bundleManifestHash, policyHash, type SkillReceipt } from './receipt.js';
 
 type CommandHandler = (args: string[]) => Promise<number>;
 
@@ -191,7 +191,7 @@ const commands: Record<string, CommandHandler> = {
       return 1;
     }
     const policy = await loadPolicyFromArgs(args);
-    const bundle = await buildSkillBundle(target);
+    const bundle = await buildSkillBundleFromSource(target);
     const report = scanSkillBundle(bundle);
     console.log(JSON.stringify(report, null, 2));
     const action = actionForScore(report, policy);
@@ -218,7 +218,23 @@ const commands: Record<string, CommandHandler> = {
 
     const bundle = await buildSkillBundleFromSource(target, limits);
     const report = scanSkillBundle(bundle);
-    console.log(JSON.stringify({ bundle: { id: bundle.id, entrypoint: bundle.entrypoint, files: bundle.files.length, source: bundle.source }, report }, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          bundle: {
+            id: bundle.id,
+            entrypoint: bundle.entrypoint,
+            files: bundle.files.length,
+            manifest_entries: bundle.manifest?.length ?? 0,
+            ingest_warnings: bundle.ingest_warnings ?? [],
+            source: bundle.source,
+          },
+          report,
+        },
+        null,
+        2,
+      ),
+    );
     const action = actionForScore(report, policy);
     return action === 'deny' ? 2 : action === 'needs_approval' ? 3 : 0;
   },
@@ -245,7 +261,7 @@ const commands: Record<string, CommandHandler> = {
       if (!entry.isDirectory()) continue;
       const skillDir = join(target, entry.name);
       if (!existsSync(join(skillDir, 'SKILL.md'))) continue;
-      const bundle = await buildSkillBundle(skillDir);
+      const bundle = await buildSkillBundleFromSource(skillDir);
       const report = scanSkillBundle(bundle);
       const action = actionForScore(report, policy);
       results.push({
@@ -282,6 +298,7 @@ const commands: Record<string, CommandHandler> = {
     const action = actionForScore(report, policy);
 
     const { sha256, totalBytes } = bundleContentHash(bundle);
+    const manifestSha = bundleManifestHash(bundle);
     const receipt: SkillReceipt = {
       receipt_version: 1,
       created_at: new Date().toISOString(),
@@ -291,8 +308,11 @@ const commands: Record<string, CommandHandler> = {
         source: bundle.source,
         entrypoint: bundle.entrypoint,
         file_count: bundle.files.length,
+        manifest_count: bundle.manifest?.length ?? 0,
+        ingest_warnings: bundle.ingest_warnings ?? [],
         total_bytes: totalBytes,
         content_sha256: sha256,
+        manifest_sha256: manifestSha ?? void 0,
       },
       policy_sha256: policyHash(policy),
       scan_report: report,

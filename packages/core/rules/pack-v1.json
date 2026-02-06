@@ -71,6 +71,66 @@
       "match": "xattr\\s+-dr?\\s+com\\.apple\\.quarantine|spctl\\s+--master-disable",
       "flags": "gi",
       "score": 60
+    },
+    {
+      "id": "R008",
+      "title": "executable file present",
+      "severity": "high",
+      "reason_code": "executable_payload",
+      "selectors": ["meta"],
+      "match": "\\bexecutable_file\\b",
+      "flags": "gi",
+      "score": 55
+    },
+    {
+      "id": "R009",
+      "title": "binary file present",
+      "severity": "medium",
+      "reason_code": "binary_payload",
+      "selectors": ["meta"],
+      "match": "\\bbinary_file\\b",
+      "flags": "gi",
+      "score": 45
+    },
+    {
+      "id": "R010",
+      "title": "symlink entry present",
+      "severity": "high",
+      "reason_code": "symlink_entry",
+      "selectors": ["meta"],
+      "match": "\\bsymlink_entry\\b",
+      "flags": "gi",
+      "score": 70
+    },
+    {
+      "id": "R011",
+      "title": "nested archive present",
+      "severity": "high",
+      "reason_code": "nested_archive",
+      "selectors": ["meta"],
+      "match": "\\bnested_archive\\b",
+      "flags": "gi",
+      "score": 55
+    },
+    {
+      "id": "R012",
+      "title": "zip path traversal entry",
+      "severity": "critical",
+      "reason_code": "path_traversal",
+      "selectors": ["meta"],
+      "match": "\\bpath_traversal_entry\\b",
+      "flags": "gi",
+      "score": 90
+    },
+    {
+      "id": "R013",
+      "title": "ingest limits hit",
+      "severity": "high",
+      "reason_code": "ingest_limits",
+      "selectors": ["meta"],
+      "match": "\\bingest_warning\\b",
+      "flags": "gi",
+      "score": 60
     }
   ]
 }

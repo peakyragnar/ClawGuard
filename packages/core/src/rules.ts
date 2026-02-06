@@ -3,7 +3,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Severity } from './types.js';
 
-export type RuleSelector = 'markdown' | 'codeblock' | 'url' | 'path' | 'file';
+export type RuleSelector = 'markdown' | 'codeblock' | 'url' | 'path' | 'file' | 'meta';
 
 export type Rule = {
   id: string;

@@ -8,6 +8,7 @@ export type ZipEntry = {
   localHeaderOffset: number;
   externalAttrs: number;
   isDirectory: boolean;
+  rawName?: string;
 };
 
 export type ZipLimits = {
@@ -41,6 +42,11 @@ function isSymlinkExternalAttrs(externalAttrs: number): boolean {
   return type === 0o120000;
 }
 
+function isExecutableExternalAttrs(externalAttrs: number): boolean {
+  const mode = (externalAttrs >>> 16) & 0xffff;
+  return (mode & 0o111) !== 0;
+}
+
 function sanitizeZipPath(name: string): string | null {
   if (!name) return null;
   if (name.includes('\u0000')) return null;
@@ -52,7 +58,16 @@ function sanitizeZipPath(name: string): string | null {
   return parts.join('/');
 }
 
+export type ZipListDiagnostics = {
+  entries: ZipEntry[];
+  invalidPaths: string[];
+};
+
 export function listZipEntries(buf: Buffer, limits: ZipLimits): ZipEntry[] {
+  return listZipEntriesWithDiagnostics(buf, limits).entries;
+}
+
+export function listZipEntriesWithDiagnostics(buf: Buffer, limits: ZipLimits): ZipListDiagnostics {
   const eocd = findEndOfCentralDirectory(buf);
   if (eocd < 0) throw new Error('invalid zip: missing EOCD');
 
@@ -64,6 +79,7 @@ export function listZipEntries(buf: Buffer, limits: ZipLimits): ZipEntry[] {
   if (cdOffset + cdSize > buf.length) throw new Error('invalid zip: central directory out of bounds');
 
   const entries: ZipEntry[] = [];
+  const invalidPaths: string[] = [];
   let off = cdOffset;
   const cdSig = 0x02014b50;
   for (let i = 0; i < totalEntries; i += 1) {
@@ -82,7 +98,10 @@ export function listZipEntries(buf: Buffer, limits: ZipLimits): ZipEntry[] {
     const isDirectory = nameRaw.endsWith('/');
     off = off + 46 + fileNameLen + extraLen + commentLen;
 
-    if (!name) continue;
+    if (!name) {
+      invalidPaths.push(nameRaw);
+      continue;
+    }
     entries.push({
       name,
       compressedSize,
@@ -91,9 +110,10 @@ export function listZipEntries(buf: Buffer, limits: ZipLimits): ZipEntry[] {
       localHeaderOffset,
       externalAttrs,
       isDirectory,
+      rawName: nameRaw,
     });
   }
-  return entries;
+  return { entries, invalidPaths };
 }
 
 export function extractZipEntry(buf: Buffer, entry: ZipEntry, limits: ZipLimits): Buffer | null {
@@ -139,3 +159,10 @@ export function selectZipFilesForScan(entries: ZipEntry[], limits: ZipLimits): Z
   return picked;
 }
 
+export function zipEntryIsSymlink(entry: ZipEntry): boolean {
+  return isSymlinkExternalAttrs(entry.externalAttrs);
+}
+
+export function zipEntryIsExecutable(entry: ZipEntry): boolean {
+  return isExecutableExternalAttrs(entry.externalAttrs);
+}

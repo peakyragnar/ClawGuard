@@ -4,7 +4,23 @@ import { extractMarkdownSignals } from './extract.js';
 import { loadDefaultRulePack } from './rules.js';
 import { clamp } from './utils.js';
 
-const TEXT_EXTENSIONS = new Set(['.md', '.markdown', '.txt', '.sh', '.bash', '.zsh', '.ps1', '.py', '.js', '.mjs', '.ts']);
+const TEXT_EXTENSIONS = new Set([
+  '.md',
+  '.markdown',
+  '.txt',
+  '.sh',
+  '.bash',
+  '.zsh',
+  '.ps1',
+  '.py',
+  '.js',
+  '.mjs',
+  '.ts',
+  '.json',
+  '.toml',
+  '.yaml',
+  '.yml',
+]);
 
 function isTextFile(path: string): boolean {
   const lower = path.toLowerCase();
@@ -42,6 +58,27 @@ function dedupeFindings<T extends { rule_id: string; file?: string; line?: numbe
 export function scanSkillBundle(bundle: SkillBundle): ScanReport {
   const rulePack = loadDefaultRulePack();
   const signals: ScanSignal[] = [];
+
+  if (bundle.ingest_warnings && bundle.ingest_warnings.length > 0) {
+    for (const warning of bundle.ingest_warnings) {
+      signals.push({ type: 'meta', text: `ingest_warning: ${warning}`, file: 'MANIFEST', baseLine: 1 });
+    }
+  }
+
+  if (bundle.manifest && bundle.manifest.length > 0) {
+    for (const entry of bundle.manifest) {
+      const path = entry.path;
+      if (entry.skipped_reason === 'invalid_path') {
+        const raw = entry.raw_path ?? entry.path;
+        signals.push({ type: 'meta', text: `path_traversal_entry raw=${raw}`, file: path, baseLine: 1 });
+        continue;
+      }
+      if (entry.is_symlink) signals.push({ type: 'meta', text: `symlink_entry path=${path}`, file: path, baseLine: 1 });
+      if (entry.is_archive) signals.push({ type: 'meta', text: `nested_archive path=${path}`, file: path, baseLine: 1 });
+      if (entry.is_executable) signals.push({ type: 'meta', text: `executable_file path=${path}`, file: path, baseLine: 1 });
+      if (entry.is_binary) signals.push({ type: 'meta', text: `binary_file path=${path}`, file: path, baseLine: 1 });
+    }
+  }
 
   for (const file of bundle.files) {
     if (!file.content_text) continue;

@@ -7,12 +7,29 @@ export type SkillFile = {
   sha256?: string;
 };
 
+export type SkillManifestEntry = {
+  path: string;
+  size_bytes?: number;
+  sha256?: string;
+  sha256_partial?: boolean;
+  is_directory?: boolean;
+  is_binary?: boolean;
+  is_executable?: boolean;
+  is_symlink?: boolean;
+  is_archive?: boolean;
+  skipped_reason?: string;
+  source_kind?: 'dir' | 'zip' | 'unknown';
+  raw_path?: string;
+};
+
 export type SkillBundle = {
   id: string;
   source?: 'local' | 'registry' | 'git' | 'clawhub' | 'unknown';
   version?: string;
   entrypoint: string;
   files: SkillFile[];
+  manifest?: SkillManifestEntry[];
+  ingest_warnings?: string[];
 };
 
 export type ScanFinding = {

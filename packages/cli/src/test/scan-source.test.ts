@@ -167,7 +167,7 @@ test('scan-source ignores zip path traversal entries', async () => {
   });
   server.close();
 
-  assert.equal(result.code, 0);
+  assert.equal(result.code, 2);
   const parsed = JSON.parse(result.stdout) as any;
-  assert.equal(parsed.report.risk_score, 0);
+  assert.ok(parsed.report.findings.some((f: any) => f.rule_id === 'R012'));
 });

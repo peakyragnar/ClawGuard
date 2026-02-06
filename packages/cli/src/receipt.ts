@@ -10,8 +10,11 @@ export type SkillReceipt = {
     source?: SkillBundle['source'];
     entrypoint: string;
     file_count: number;
+    manifest_count?: number;
+    ingest_warnings?: string[];
     total_bytes: number;
     content_sha256: string;
+    manifest_sha256?: string;
   };
   policy_sha256: string;
   scan_report: ScanReport;
@@ -46,3 +49,29 @@ export function bundleContentHash(bundle: SkillBundle): { sha256: string; totalB
   return { sha256: hash.digest('hex'), totalBytes: total };
 }
 
+export function bundleManifestHash(bundle: SkillBundle): string | null {
+  if (!bundle.manifest || bundle.manifest.length === 0) return null;
+  const hash = createHash('sha256');
+  const entries = [...bundle.manifest].sort((a, b) => a.path.localeCompare(b.path));
+  for (const entry of entries) {
+    hash.update(entry.path);
+    hash.update('\n');
+    hash.update(String(entry.size_bytes ?? ''));
+    hash.update('\n');
+    hash.update(entry.sha256 ?? '');
+    hash.update('\n');
+    hash.update(entry.sha256_partial ? 'partial' : '');
+    hash.update('\n');
+    hash.update(entry.is_binary ? 'binary' : '');
+    hash.update('\n');
+    hash.update(entry.is_executable ? 'exec' : '');
+    hash.update('\n');
+    hash.update(entry.is_symlink ? 'symlink' : '');
+    hash.update('\n');
+    hash.update(entry.is_archive ? 'archive' : '');
+    hash.update('\n');
+    hash.update(entry.skipped_reason ?? '');
+    hash.update('\n');
+  }
+  return hash.digest('hex');
+}

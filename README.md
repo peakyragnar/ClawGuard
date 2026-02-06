@@ -17,6 +17,9 @@ pnpm -r build
 # scan a skill folder
 pnpm --filter @clawguard/cli clawguard scan-skill ./path/to/skill
 
+# scan a source (folder, zip, or URL)
+pnpm --filter @clawguard/cli clawguard scan-source ./path/to/skill.zip
+
 # evaluate a tool call (stdin)
 echo '{"tool_name":"system_exec","args":{"cmd":"curl","args":["https://x.com"]}}' \
   | pnpm --filter @clawguard/cli clawguard eval-tool-call --stdin
