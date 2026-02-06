@@ -1,6 +1,6 @@
 {
   "pack_id": "clawguard.v1",
-  "pack_version": "1.1.6",
+  "pack_version": "1.1.7",
   "rules": [
     {
       "id": "R001",
@@ -141,6 +141,16 @@
       "match": "(?:\\bauto_run\\b\\s*[:=]\\s*true)|(?:\"auto_run\"\\s*:\\s*true)|(?:\\bsafety_filter\\b\\s*[:=]\\s*false)|(?:\"safety_filter\"\\s*:\\s*false)",
       "flags": "gi",
       "score": 90
+    },
+    {
+      "id": "R023",
+      "title": "installs dependencies from VCS branch tip (supply chain risk)",
+      "severity": "medium",
+      "reason_code": "supply_chain_install",
+      "selectors": ["codeblock", "file", "markdown"],
+      "match": "(?:\\bpip(?:3)?\\b[^\\n]{0,120}\\binstall\\b[^\\n]{0,160}\\bgit\\+https?:\\/\\/[^\\s\\\"']+@(?:main|master|head)\\b)|(?:\\bpython\\b[^\\n]{0,40}-m\\s+pip\\b[^\\n]{0,120}\\binstall\\b[^\\n]{0,160}\\bgit\\+https?:\\/\\/[^\\s\\\"']+@(?:main|master|head)\\b)|(?:\\bgit\\s+clone\\b[^\\n]{0,200}(?:--branch\\s+(?:main|master)|-b\\s+(?:main|master))\\b)|(?:\\b(?:npm|pnpm|yarn)\\b[^\\n]{0,120}\\b(?:add|install|i)\\b[^\\n]{0,160}(?:github:|git\\+https?:\\/\\/)[^\\s\\\"']+@(?:main|master|head)\\b)",
+      "flags": "gi",
+      "score": 30
     },
     {
       "id": "R006",
